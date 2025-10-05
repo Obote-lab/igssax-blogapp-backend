@@ -36,11 +36,3 @@ def update_follow_counts_on_delete(sender, instance, **kwargs):
     Profile.objects.filter(user=instance.following).update(
         followers_count=F("followers_count") - 1
     )
-
-@receiver(post_save, sender=settings.AUTH_USER_MODEL)
-def create_user_settings(sender, instance, created, **kwargs):
-    if created:
-        UserSettings.objects.create(user=instance)
-    else:
-        # make sure every user always has settings
-        UserSettings.objects.get_or_create(user=instance)
