@@ -1,10 +1,12 @@
+from django.conf import settings
 from django.db.models import F
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
-from django.conf import settings
+
 from .models import Follow, Profile, User, UserSettings
 
 User = settings.AUTH_USER_MODEL
+
 
 @receiver(post_save, sender=User)
 def create_or_update_user_profile_and_settings(sender, instance, created, **kwargs):
@@ -15,6 +17,7 @@ def create_or_update_user_profile_and_settings(sender, instance, created, **kwar
         instance.profile.save()
         if hasattr(instance, "settings"):
             instance.settings.save()
+
 
 
 @receiver(post_save, sender=Follow)

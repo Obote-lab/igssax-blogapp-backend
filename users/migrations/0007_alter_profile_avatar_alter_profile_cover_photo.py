@@ -6,18 +6,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0006_remove_usersettings_dark_mode_usersettings_theme'),
+        ("users", "0006_remove_usersettings_dark_mode_usersettings_theme"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='profile',
-            name='avatar',
-            field=models.ImageField(blank=True, null=True, upload_to='avatars/'),
+            model_name="profile",
+            name="avatar",
+            field=models.ImageField(blank=True, null=True, upload_to="avatars/"),
         ),
         migrations.AlterField(
-            model_name='profile',
-            name='cover_photo',
-            field=models.ImageField(blank=True, null=True, upload_to='covers/'),
+            model_name="profile",
+            name="cover_photo",
+            field=models.ImageField(blank=True, null=True, upload_to="covers/"),
         ),
     ]

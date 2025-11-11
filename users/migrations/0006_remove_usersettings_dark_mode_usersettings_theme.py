@@ -6,17 +6,21 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0005_usersettings'),
+        ("users", "0005_usersettings"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='usersettings',
-            name='dark_mode',
+            model_name="usersettings",
+            name="dark_mode",
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='theme',
-            field=models.CharField(choices=[('light', 'Light'), ('dark', 'Dark')], default='light', max_length=20),
+            model_name="usersettings",
+            name="theme",
+            field=models.CharField(
+                choices=[("light", "Light"), ("dark", "Dark")],
+                default="light",
+                max_length=20,
+            ),
         ),
     ]

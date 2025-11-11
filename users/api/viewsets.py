@@ -1,4 +1,5 @@
 import logging
+
 import requests
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView
@@ -18,16 +19,18 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
-from ..models import Friendship, Profile, User, UserSettings,BlockedUser
-from .serializers import (ChangePasswordSerializer,
+from notifications.utils import create_notification
+
+from ..models import (BlockedUser, Follow, Friendship, Profile, User,
+                      UserSettings)
+from .serializers import (AccountUpdateSerializer, BlockedUserSerializer,
+                          BlockUserSerializer, ChangePasswordSerializer,
                           CustomPasswordResetConfirmSerializer,
                           CustomPasswordResetRequestSerializer,
                           FriendshipSerializer, GoogleSignUpSerializer,
-                          UserProfileSerializer, UserRegisterSerializer,
-                          UserSerializer, UserSerializerWithToken,
-                          UserSettingsSerializer, AccountUpdateSerializer,
-                          PrivacySettingsSerializer, BlockedUserSerializer,
-                          BlockUserSerializer)
+                          PrivacySettingsSerializer, UserProfileSerializer,
+                          UserRegisterSerializer, UserSerializer,
+                          UserSerializerWithToken, UserSettingsSerializer)
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -56,6 +59,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -132,60 +136,64 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(
             UserSerializer(requesters, many=True, context={"request": request}).data
         )
-    
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def block(self, request, pk=None):
         """Block a specific user"""
         user_to_block = self.get_object()
-        
+
         if user_to_block == request.user:
             return Response(
-                {"error": "You cannot block yourself"}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "You cannot block yourself"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         # Check if already blocked
-        if BlockedUser.objects.filter(blocker=request.user, blocked=user_to_block).exists():
+        if BlockedUser.objects.filter(
+            blocker=request.user, blocked=user_to_block
+        ).exists():
             return Response(
-                {"error": "User is already blocked"}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "User is already blocked"}, status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         # Create block
         BlockedUser.objects.create(blocker=request.user, blocked=user_to_block)
-        
+
         # Clean up relationships
         Friendship.objects.filter(
-            Q(requester=request.user, receiver=user_to_block) |
-            Q(requester=user_to_block, receiver=request.user)
+            Q(requester=request.user, receiver=user_to_block)
+            | Q(requester=user_to_block, receiver=request.user)
         ).delete()
-        
+
         Follow.objects.filter(
-            Q(follower=request.user, following=user_to_block) |
-            Q(follower=user_to_block, following=request.user)
+            Q(follower=request.user, following=user_to_block)
+            | Q(follower=user_to_block, following=request.user)
         ).delete()
-        
+
         return Response({"success": "User blocked successfully"})
-    
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def unblock(self, request, pk=None):
         """Unblock a specific user"""
         user_to_unblock = self.get_object()
-        
+
         try:
-            blocked_user = BlockedUser.objects.get(blocker=request.user, blocked=user_to_unblock)
+            blocked_user = BlockedUser.objects.get(
+                blocker=request.user, blocked=user_to_unblock
+            )
             blocked_user.delete()
             return Response({"success": "User unblocked successfully"})
         except BlockedUser.DoesNotExist:
             return Response(
-                {"error": "User is not blocked"}, 
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "User is not blocked"}, status=status.HTTP_404_NOT_FOUND
             )
-    
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+
+    @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated])
     def blocked_users(self, request):
         """Get current user's blocked users list"""
-        blocked_users = BlockedUser.objects.filter(blocker=request.user).select_related('blocked')
+        blocked_users = BlockedUser.objects.filter(blocker=request.user).select_related(
+            "blocked"
+        )
         serializer = BlockedUserSerializer(blocked_users, many=True)
         return Response(serializer.data)
 
@@ -205,7 +213,8 @@ class RegisterView(APIView):
                 UserSerializerWithToken(user).data, status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
+
 class AccountUpdateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -218,7 +227,7 @@ class AccountUpdateView(APIView):
             instance=request.user,
             data=request.data,
             partial=partial,
-            context={"request": request}
+            context={"request": request},
         )
         if serializer.is_valid():
             user = serializer.save()
@@ -233,7 +242,6 @@ class AccountUpdateView(APIView):
         return self.update_user(request, partial=True)
 
 
-
 class UserProfileUpdate(UpdateAPIView):
     """Update the authenticated user's profile"""
 
@@ -242,6 +250,7 @@ class UserProfileUpdate(UpdateAPIView):
 
     def get_object(self):
         return self.request.user.profile
+
 
 class FriendshipViewSet(viewsets.ModelViewSet):
     queryset = Friendship.objects.all()
@@ -436,69 +445,74 @@ class PasswordResetConfirmView(APIView):
 
         return Response({"message": "Password has been reset successfully"}, status=200)
 
+
 class BlockedUsersViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
-    
+
     def list(self, request):
         """Get list of users blocked by current user"""
-        blocked_users = BlockedUser.objects.filter(blocker=request.user).select_related('blocked')
+        blocked_users = BlockedUser.objects.filter(blocker=request.user).select_related(
+            "blocked"
+        )
         serializer = BlockedUserSerializer(blocked_users, many=True)
         return Response(serializer.data)
-    
+
     def create(self, request):
         """Block a user"""
         serializer = BlockUserSerializer(data=request.data)
         if serializer.is_valid():
-            user_to_block_id = serializer.validated_data['user_id']
-            reason = serializer.validated_data.get('reason', '')
-            
+            user_to_block_id = serializer.validated_data["user_id"]
+            reason = serializer.validated_data.get("reason", "")
+
             # Prevent self-blocking
             if user_to_block_id == request.user.id:
                 return Response(
-                    {"error": "You cannot block yourself"}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"error": "You cannot block yourself"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
+
             try:
                 user_to_block = User.objects.get(id=user_to_block_id)
             except User.DoesNotExist:
                 return Response(
-                    {"error": "User not found"}, 
-                    status=status.HTTP_404_NOT_FOUND
+                    {"error": "User not found"}, status=status.HTTP_404_NOT_FOUND
                 )
-            
+
             # Check if already blocked
-            if BlockedUser.objects.filter(blocker=request.user, blocked=user_to_block).exists():
+            if BlockedUser.objects.filter(
+                blocker=request.user, blocked=user_to_block
+            ).exists():
                 return Response(
-                    {"error": "User is already blocked"}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"error": "User is already blocked"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
+
             # Create block relationship
             blocked_user = BlockedUser.objects.create(
-                blocker=request.user,
-                blocked=user_to_block,
-                reason=reason
+                blocker=request.user, blocked=user_to_block, reason=reason
             )
-            
+
             # Remove any existing friendships or follows
             Friendship.objects.filter(
-                Q(requester=request.user, receiver=user_to_block) |
-                Q(requester=user_to_block, receiver=request.user)
+                Q(requester=request.user, receiver=user_to_block)
+                | Q(requester=user_to_block, receiver=request.user)
             ).delete()
-            
+
             Follow.objects.filter(
-                Q(follower=request.user, following=user_to_block) |
-                Q(follower=user_to_block, following=request.user)
+                Q(follower=request.user, following=user_to_block)
+                | Q(follower=user_to_block, following=request.user)
             ).delete()
-            
+
             return Response(
-                {"success": "User blocked successfully", "blocked_user_id": user_to_block_id},
-                status=status.HTTP_201_CREATED
+                {
+                    "success": "User blocked successfully",
+                    "blocked_user_id": user_to_block_id,
+                },
+                status=status.HTTP_201_CREATED,
             )
-        
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     def destroy(self, request, pk=None):
         """Unblock a user"""
         try:
@@ -507,8 +521,7 @@ class BlockedUsersViewSet(viewsets.ViewSet):
             return Response({"success": "User unblocked successfully"})
         except BlockedUser.DoesNotExist:
             return Response(
-                {"error": "User is not blocked"}, 
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "User is not blocked"}, status=status.HTTP_404_NOT_FOUND
             )
 
 
@@ -529,11 +542,11 @@ class SettingsViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
-    
+
 
 class PrivacySettingsView(APIView):
     permission_classes = [IsAuthenticated]
-    
+
     def get(self, request):
         """Get user's privacy settings"""
         try:
@@ -544,36 +557,35 @@ class PrivacySettingsView(APIView):
         except Exception as e:
             logger.error(f"Error fetching privacy settings: {e}")
             return Response(
-                {"error": "Failed to fetch privacy settings"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Failed to fetch privacy settings"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-    
+
     def patch(self, request):
         """Update user's privacy settings"""
         try:
             settings = request.user.settings
             serializer = PrivacySettingsSerializer(
-                settings, 
-                data=request.data, 
-                partial=True,
-                context={'request': request}
+                settings, data=request.data, partial=True, context={"request": request}
             )
-            
+
             if serializer.is_valid():
                 serializer.save()
-                return Response({
-                    "success": "Privacy settings updated successfully",
-                    "data": serializer.data
-                })
-            
+                return Response(
+                    {
+                        "success": "Privacy settings updated successfully",
+                        "data": serializer.data,
+                    }
+                )
+
             return Response(
-                {"error": "Invalid data", "details": serializer.errors}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "Invalid data", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            
+
         except Exception as e:
             logger.error(f"Error updating privacy settings: {e}")
             return Response(
-                {"error": "Failed to update privacy settings"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Failed to update privacy settings"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

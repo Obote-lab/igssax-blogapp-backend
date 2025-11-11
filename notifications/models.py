@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-
+from django.utils import timezone
 User = settings.AUTH_USER_MODEL
 
 
@@ -17,41 +17,36 @@ class Notification(models.Model):
         COMMENT_MENTION = "comment_mention", _("Comment Mention")
         SYSTEM = "system", _("System Notification")
 
-    recipient = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name="notifications"
-    )
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
     sender = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        null=True, 
+        User,
+        on_delete=models.CASCADE,
+        null=True,
         blank=True,
-        related_name="sent_notifications"
+        related_name="sent_notifications",
     )
     notification_type = models.CharField(
-        max_length=50, 
-        choices=NotificationType.choices
+        max_length=50, choices=NotificationType.choices
     )
     title = models.CharField(max_length=255)
     message = models.TextField()
-    
+
     # Generic foreign key to any related object
     content_type = models.ForeignKey(
-        'contenttypes.ContentType', 
-        on_delete=models.CASCADE, 
-        null=True, 
-        blank=True
+        "contenttypes.ContentType", on_delete=models.CASCADE, null=True, blank=True
     )
     object_id = models.PositiveIntegerField(null=True, blank=True)
-    
+
     is_read = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    timestamp = models.DateTimeField(default=timezone.now) 
+    extra_data = models.JSONField(blank=True, null=True)
+  
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=['recipient', 'is_read', 'created_at']),
+            models.Index(fields=["recipient", "is_read", "created_at"]),
         ]
 
     def __str__(self):
@@ -64,11 +59,9 @@ class Notification(models.Model):
 
 class NotificationPreference(models.Model):
     user = models.OneToOneField(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name="notification_preferences"
+        User, on_delete=models.CASCADE, related_name="notification_preferences"
     )
-    
+
     # Email notifications
     email_friend_requests = models.BooleanField(default=True)
     email_friend_acceptances = models.BooleanField(default=True)
@@ -78,7 +71,7 @@ class NotificationPreference(models.Model):
     email_mentions = models.BooleanField(default=True)
     email_messages = models.BooleanField(default=False)
     email_system = models.BooleanField(default=True)
-    
+
     # Push notifications
     push_friend_requests = models.BooleanField(default=True)
     push_friend_acceptances = models.BooleanField(default=True)
@@ -88,7 +81,7 @@ class NotificationPreference(models.Model):
     push_mentions = models.BooleanField(default=True)
     push_messages = models.BooleanField(default=True)
     push_system = models.BooleanField(default=True)
-    
+
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

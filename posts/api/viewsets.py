@@ -1,15 +1,19 @@
+import mimetypes
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.utils.timezone import now
 from django_filters.rest_framework import (DjangoFilterBackend, FilterSet,
                                            filters)
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from requests import post
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
-
-from ..models import Post, Story, Tag
+from rest_framework.permissions import IsAuthenticated
+from ..models import Post, PostMedia, Story, Tag, PostShare
 from .serializers import (PostCreateSerializer, PostSerializer,
-                          StorySerializer, TagSerializer)
+                          StorySerializer, TagSerializer, PostShareSerializer)
 
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
@@ -50,25 +54,50 @@ class StoryFilter(FilterSet):
     partial_update=extend_schema(summary="Partially update a post"),
     destroy=extend_schema(summary="Delete a post"),
 )
+
 class PostViewSet(viewsets.ModelViewSet):
     queryset = (
         Post.objects.all()
         .select_related("author")
-        .prefetch_related("media", "tags", "comments", "comments__author")
+        .prefetch_related(
+            "media", 
+            "tags", 
+            "comments__author__profile",
+            "comments__replies__author__profile",
+            "comments__replies__replies__author__profile"
+        )
     )
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_class = PostFilter
-    parser_classes = [MultiPartParser, FormParser]  # Added for file uploads
+    parser_classes = [MultiPartParser, FormParser]
 
+    # KEEP all your existing methods below exactly as they are
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
             return PostCreateSerializer
         return PostSerializer
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        """Create a new post and broadcast via WebSocket"""
+        post = serializer.save(author=self.request.user)
 
+        # WebSocket Broadcast
+        layer = get_channel_layer()
+        async_to_sync(layer.group_send)(
+            "posts_group",
+            {
+                "type": "send_new_post",
+                "data": {
+                    "action": "new_post",
+                    "post": PostSerializer(
+                        post, context={"request": self.request}
+                    ).data,
+                },
+            },
+        )
+
+    # KEEP all your existing actions (@action methods) exactly as they are
     @extend_schema(
         summary="List my posts",
         description="Retrieve all posts created by the authenticated user.",
@@ -105,6 +134,10 @@ class PostViewSet(viewsets.ModelViewSet):
         return Response({"success": f"{len(files)} media files added"})
 
 
+
+
+
+
 @extend_schema_view(
     list=extend_schema(summary="List all stories"),
     create=extend_schema(summary="Create a story"),
@@ -119,7 +152,22 @@ class StoryViewSet(viewsets.ModelViewSet):
     filterset_class = StoryFilter
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        story = serializer.save(author=self.request.user)
+
+        # Optional: Broadcast new story to WebSocket clients
+        layer = get_channel_layer()
+        async_to_sync(layer.group_send)(
+            "stories_group",
+            {
+                "type": "send_new_story",
+                "data": {
+                    "action": "new_story",
+                    "story": StorySerializer(
+                        story, context={"request": self.request}
+                    ).data,
+                },
+            },
+        )
 
     @extend_schema(
         summary="List active stories",
@@ -133,8 +181,32 @@ class StoryViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class TagViewSet(viewsets.ReadOnlyModelViewSet):  # Changed to ReadOnly
+class TagViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
-    permission_classes = [permissions.AllowAny]  # Allow anyone to view tags
-    pagination_class = None  # No pagination for tags
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+
+
+class PostShareViewSet(viewsets.ModelViewSet):
+    queryset = PostShare.objects.all()
+    serializer_class = PostShareSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        post_id = self.request.data.get("post")
+        share_type = self.request.data.get("share_type", "feed")
+        post = Post.objects.get(id=post_id)
+        user = self.request.user
+
+        # prevent duplicate shares per type
+        existing = PostShare.objects.filter(post=post, user=user, share_type=share_type).first()
+        if existing:
+            return Response({"detail": "You already shared this post."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer.save(user=user)
+
+        # update share count
+        post.share_count = PostShare.objects.filter(post=post).count()
+        post.save(update_fields=["share_count"])

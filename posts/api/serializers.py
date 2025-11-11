@@ -1,15 +1,12 @@
 import mimetypes
-
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from rest_framework import serializers
-
-from comments.api.serializers import RecursiveCommentSerializer
+from comments.api.serializers import RecursiveCommentSerializer,CommentSerializer
 from reactions.models import Reaction
+from reactions.utils.cache_utils import get_reaction_summary_cached
 from users.api.serializers import UserSerializer
-
-from ..models import Post, PostMedia, Story, Tag
-
+from ..models import Post, PostMedia, Story, Tag, PostShare
 
 class PostMediaSerializer(serializers.ModelSerializer):
     class Meta:
@@ -27,7 +24,8 @@ class PostSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
     media = PostMediaSerializer(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
-    comments = RecursiveCommentSerializer(many=True, read_only=True)
+    # comments = RecursiveCommentSerializer(many=True, read_only=True)
+    comments = CommentSerializer(many=True, read_only=True)
     reactions = serializers.SerializerMethodField()
 
     class Meta:
@@ -46,12 +44,35 @@ class PostSerializer(serializers.ModelSerializer):
         ]
 
     def get_reactions(self, obj):
-        ctype = ContentType.objects.get_for_model(obj)
-        reactions = Reaction.objects.filter(content_type=ctype, object_id=obj.id)
-        summary = {}
-        for r in reactions:
-            summary[r.reaction_type] = summary.get(r.reaction_type, 0) + 1
-        return summary
+        """Use annotated reaction counts if available, else cached fallback."""
+        if hasattr(obj, "likes"):
+            # Optional: if you add annotations to queryset
+            return {
+                "like": getattr(obj, "likes", 0),
+                "love": getattr(obj, "loves", 0),
+                "wow": getattr(obj, "wows", 0),
+                "sad": getattr(obj, "sads", 0),
+                "angry": getattr(obj, "angrys", 0),
+            }
+
+        # fallback to cached summary
+        summary = get_reaction_summary_cached(Post, obj.id)
+
+        request = self.context.get("request")
+        user_reacted = None
+        if request and request.user.is_authenticated:
+            ctype = ContentType.objects.get_for_model(obj)
+            from reactions.models import Reaction
+            user_reaction = Reaction.objects.filter(
+                content_type=ctype, object_id=obj.id, user=request.user
+            ).first()
+            if user_reaction:
+                user_reacted = user_reaction.reaction_type
+
+        total = sum(summary.values())
+        return {"summary": summary, "total": total, "user_reacted": user_reacted}
+
+
 
 
 class PostCreateSerializer(serializers.ModelSerializer):
@@ -80,10 +101,10 @@ class PostCreateSerializer(serializers.ModelSerializer):
         tag_names = validated_data.pop("tag_names", [])
 
         with transaction.atomic():
-            # ✅ Create post (author comes from CurrentUserDefault)
+            # Create post (author comes from CurrentUserDefault)
             post = Post.objects.create(**validated_data)
 
-            # ✅ Save media with mimetype detection
+            # Save media with mimetype detection
             for file in media_files:
                 try:
                     content_type, _ = mimetypes.guess_type(file.name)
@@ -95,7 +116,7 @@ class PostCreateSerializer(serializers.ModelSerializer):
                 )
                 PostMedia.objects.create(post=post, file=file, media_type=media_type)
 
-            # ✅ Save tags
+            # Save tags
             for name in tag_names:
                 clean_name = name.strip()
                 tag, _ = Tag.objects.get_or_create(name=clean_name.lower())
@@ -126,3 +147,13 @@ class StorySerializer(serializers.ModelSerializer):
 
     def get_is_active(self, obj) -> bool:
         return obj.is_active()
+
+
+
+class PostShareSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    share_count = serializers.IntegerField(read_only=True)
+    class Meta:
+        model = PostShare
+        fields = ["id", "post", "user", "share_type", "shared_at","share_count"]
+        read_only_fields = ["id", "user", "shared_at"]

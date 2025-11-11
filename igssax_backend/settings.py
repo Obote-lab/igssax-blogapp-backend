@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
+    "channels",
     # Local apps
     "analytics",
     "comments",
@@ -66,11 +67,14 @@ INSTALLED_APPS = [
     "groups",
     "messaging",
     "moderations",
-    "notifications",
+    # "notifications",
+    "notifications.apps.NotificationsConfig",
     "posts",
     "reactions",
     "search",
     "users.apps.UsersConfig",
+    # "livestream",
+    "livestream.apps.LivestreamConfig",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
@@ -109,6 +113,24 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "igssax_backend.wsgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+        },
+    },
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        "KEY_PREFIX": "finagent"
+    }
+}
 
 
 # CORS settings
@@ -167,6 +189,16 @@ DATABASES = {
     }
 }
 
+
+# settings.py additions
+LIVESTREAM_CONFIG = {
+    "MAX_STREAM_DURATION_HOURS": 24,
+    "MAX_MESSAGE_LENGTH": 1000,
+    "MAX_CONCURRENT_STREAMS_PER_USER": 1,
+    "AUTO_END_INACTIVE_MINUTES": 5,
+    "RATE_LIMIT_MESSAGES_PER_MINUTE": 30,
+    "RATE_LIMIT_REACTIONS_PER_MINUTE": 60,
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

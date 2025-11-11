@@ -1,5 +1,4 @@
 from datetime import timedelta
-
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -20,9 +19,13 @@ class Post(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     tags = models.ManyToManyField("Tag", related_name="posts", blank=True)
+    share_count = models.PositiveIntegerField(default=0)
+    views_count = models.PositiveIntegerField(default=0)
+
+
 
     class Meta:
-        ordering = ["-created_at"]  # newest posts first
+        ordering = ["-created_at"] 
 
     def __str__(self):
         return f"Post by {self.author} ({self.created_at.strftime('%Y-%m-%d')})"
@@ -47,7 +50,7 @@ class Story(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="stories")
     media = models.FileField(upload_to="stories/")
     created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(blank=True)
+    expires_at = models.DateTimeField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
         if not self.expires_at:
@@ -62,8 +65,8 @@ class Story(models.Model):
 
 
 class Tag(models.Model):
-    name = models.CharField(max_length=50, unique=True)  # normalized (lowercase)
-    display_name = models.CharField(max_length=50, blank=True)  # original case
+    name = models.CharField(max_length=50, unique=True)  
+    display_name = models.CharField(max_length=50, blank=True) 
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -74,3 +77,21 @@ class Tag(models.Model):
 
     def __str__(self):
         return f"#{self.display_name}"
+
+
+class PostShare(models.Model):
+    SHARE_TYPES = [
+        ("feed", "Share to Feed"),
+        ("message", "Share via Message"),
+        ("external", "External Link"),
+    ]
+
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="shares")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shared_posts")
+    share_type = models.CharField(max_length=20, choices=SHARE_TYPES, default="feed")
+    shared_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("post", "user", "share_type")  
+    def __str__(self):
+        return f"{self.user} shared {self.post} ({self.share_type})"

@@ -74,9 +74,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
-    def __str__(self):
-        return self.email
-
     # Follow helpers
     def follow(self, user):
         from .models import Follow
@@ -120,6 +117,12 @@ class User(AbstractBaseUser, PermissionsMixin):
                 status=Friendship.Status.ACCEPTED,
             ).values_list("requester", "receiver")
         ).exclude(id=self.id)
+    
+    def get_full_name(self):
+        return f"{self.first_name} {self.last_name}".strip() if hasattr(self, "first_name") else self.username
+
+    def __str__(self):
+        return self.get_full_name() or self.email
 
 
 class Friendship(models.Model):
@@ -162,7 +165,6 @@ class Profile(models.Model):
     website = models.URLField(_("website"), blank=True, null=True)
     avatar = models.ImageField(upload_to="avatars/", null=True, blank=True)
     cover_photo = models.ImageField(upload_to="covers/", null=True, blank=True)
-
 
     # Extra social fields
     work = models.CharField(_("work"), max_length=100, blank=True)
@@ -208,41 +210,40 @@ class Follow(models.Model):
     def __str__(self):
         return f"{self.follower.email} follows {self.following.email}"
 
+
 class UserSettings(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="settings")
-    
-    # Profile Visibility
     profile_visibility = models.CharField(
         max_length=20,
         choices=[("public", "Public"), ("friends", "Friends"), ("private", "Private")],
         default="public",
     )
-    
-    # Activity Status Privacy
     show_activity_status = models.BooleanField(default=True)
     show_last_seen = models.BooleanField(default=True)
     show_online_status = models.BooleanField(default=True)
-    
-    # Connection Privacy
     allow_friend_requests = models.BooleanField(default=True)
     allow_follow_requests = models.BooleanField(default=True)
     allow_messages_from = models.CharField(
         max_length=20,
-        choices=[("everyone", "Everyone"), ("friends", "Friends Only"), ("nobody", "Nobody")],
+        choices=[
+            ("everyone", "Everyone"),
+            ("friends", "Friends Only"),
+            ("nobody", "Nobody"),
+        ],
         default="everyone",
     )
-    
-    # Search & Discovery
     search_engine_indexing = models.BooleanField(default=True)
     show_in_search_results = models.BooleanField(default=True)
-    
-    # Post Visibility Default
     default_post_visibility = models.CharField(
         max_length=20,
-        choices=[("public", "Public"), ("friends", "Friends Only"), ("private", "Private")],
+        choices=[
+            ("public", "Public"),
+            ("friends", "Friends Only"),
+            ("private", "Private"),
+        ],
         default="public",
     )
-    
+
     # Email & Notifications
     email_notifications = models.BooleanField(default=True)
     push_notifications = models.BooleanField(default=True)
@@ -250,65 +251,57 @@ class UserSettings(models.Model):
 
     # Display
     theme = models.CharField(
-        max_length=20, 
+        max_length=20,
         choices=[
-            ("light", "Light"), 
+            ("light", "Light"),
             ("dark", "Dark"),
             ("system", "System"),
             ("blue", "Ocean"),
-            ("green", "Forest"), 
-            ("purple", "Royal")
-        ], 
-        default="light"
+            ("green", "Forest"),
+            ("purple", "Royal"),
+        ],
+        default="light",
     )
     font_size = models.PositiveIntegerField(
-        default=16,
-        help_text="Base font size in pixels"
+        default=16, help_text="Base font size in pixels"
     )
     layout_density = models.CharField(
         max_length=20,
-        choices=[
-            ("comfortable", "Comfortable"),
-            ("compact", "Compact")
-        ],
-        default="comfortable"
-    )
-    
-    # Accessibility Settings
-    reduced_motion = models.BooleanField(
-        default=False,
-        help_text="Reduce animations and transitions"
-    )
-    high_contrast = models.BooleanField(
-        default=False,
-        help_text="Increase color contrast for better visibility"
-    )
-    color_blind_mode = models.BooleanField(
-        default=False,
-        help_text="Optimize colors for color vision deficiency"
-    )
-    
-    language = models.CharField(
-        max_length=10, 
-        choices=[
-            ("en", "English"),
-            ("es", "Español"), 
-            ("fr", "Français"),
-            ("de", "Deutsch"),
-            ("zh", "中文")
-        ],
-        default="en"
+        choices=[("comfortable", "Comfortable"), ("compact", "Compact")],
+        default="comfortable",
     )
 
+    # Accessibility Settings
+    reduced_motion = models.BooleanField(
+        default=False, help_text="Reduce animations and transitions"
+    )
+    high_contrast = models.BooleanField(
+        default=False, help_text="Increase color contrast for better visibility"
+    )
+    color_blind_mode = models.BooleanField(
+        default=False, help_text="Optimize colors for color vision deficiency"
+    )
+
+    language = models.CharField(
+        max_length=10,
+        choices=[
+            ("en", "English"),
+            ("es", "Español"),
+            ("fr", "Français"),
+            ("de", "Deutsch"),
+            ("zh", "中文"),
+        ],
+        default="en",
+    )
 
     # Security
     two_factor_enabled = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     def __str__(self):
-            return f"Settings for {self.user.email}"
+        return f"Settings for {self.user.email}"
 
     def save(self, *args, **kwargs):
         # Ensure font size is within reasonable bounds
@@ -318,22 +311,19 @@ class UserSettings(models.Model):
             self.font_size = 20
         super().save(*args, **kwargs)
 
+
 class BlockedUser(models.Model):
     blocker = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name="blocked_users"
+        User, on_delete=models.CASCADE, related_name="blocked_users"
     )
     blocked = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name="blocked_by"
+        User, on_delete=models.CASCADE, related_name="blocked_by"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     reason = models.TextField(blank=True, null=True)
 
     class Meta:
-        unique_together = ('blocker', 'blocked')
+        unique_together = ("blocker", "blocked")
         verbose_name = "Blocked User"
         verbose_name_plural = "Blocked Users"
 

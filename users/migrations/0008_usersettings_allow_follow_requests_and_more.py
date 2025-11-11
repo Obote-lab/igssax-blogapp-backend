@@ -8,68 +8,106 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0007_alter_profile_avatar_alter_profile_cover_photo'),
+        ("users", "0007_alter_profile_avatar_alter_profile_cover_photo"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='usersettings',
-            name='allow_follow_requests',
+            model_name="usersettings",
+            name="allow_follow_requests",
             field=models.BooleanField(default=True),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='allow_friend_requests',
+            model_name="usersettings",
+            name="allow_friend_requests",
             field=models.BooleanField(default=True),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='allow_messages_from',
-            field=models.CharField(choices=[('everyone', 'Everyone'), ('friends', 'Friends Only'), ('nobody', 'Nobody')], default='everyone', max_length=20),
+            model_name="usersettings",
+            name="allow_messages_from",
+            field=models.CharField(
+                choices=[
+                    ("everyone", "Everyone"),
+                    ("friends", "Friends Only"),
+                    ("nobody", "Nobody"),
+                ],
+                default="everyone",
+                max_length=20,
+            ),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='default_post_visibility',
-            field=models.CharField(choices=[('public', 'Public'), ('friends', 'Friends Only'), ('private', 'Private')], default='public', max_length=20),
+            model_name="usersettings",
+            name="default_post_visibility",
+            field=models.CharField(
+                choices=[
+                    ("public", "Public"),
+                    ("friends", "Friends Only"),
+                    ("private", "Private"),
+                ],
+                default="public",
+                max_length=20,
+            ),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='search_engine_indexing',
+            model_name="usersettings",
+            name="search_engine_indexing",
             field=models.BooleanField(default=True),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='show_activity_status',
+            model_name="usersettings",
+            name="show_activity_status",
             field=models.BooleanField(default=True),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='show_in_search_results',
+            model_name="usersettings",
+            name="show_in_search_results",
             field=models.BooleanField(default=True),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='show_last_seen',
+            model_name="usersettings",
+            name="show_last_seen",
             field=models.BooleanField(default=True),
         ),
         migrations.AddField(
-            model_name='usersettings',
-            name='show_online_status',
+            model_name="usersettings",
+            name="show_online_status",
             field=models.BooleanField(default=True),
         ),
         migrations.CreateModel(
-            name='BlockedUser',
+            name="BlockedUser",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('reason', models.TextField(blank=True, null=True)),
-                ('blocked', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='blocked_by', to=settings.AUTH_USER_MODEL)),
-                ('blocker', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='blocked_users', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("reason", models.TextField(blank=True, null=True)),
+                (
+                    "blocked",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="blocked_by",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "blocker",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="blocked_users",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Blocked User',
-                'verbose_name_plural': 'Blocked Users',
-                'unique_together': {('blocker', 'blocked')},
+                "verbose_name": "Blocked User",
+                "verbose_name_plural": "Blocked Users",
+                "unique_together": {("blocker", "blocked")},
             },
         ),
     ]

@@ -4,11 +4,12 @@ from django.contrib.auth.hashers import check_password
 from django.db.models import Q
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
-
 from comments.api.serializers import CommentSerializer
 from comments.models import Comment
-
-from ..models import Follow, Friendship, Profile, User, UserSettings, BlockedUser
+from ..models import (
+    BlockedUser, Follow, Friendship, Profile, User,
+    UserSettings
+)
 
 User = get_user_model()
 
@@ -41,7 +42,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             # Privacy Settings
             "profile_visibility",
             "show_activity_status",
-            "show_last_seen", 
+            "show_last_seen",
             "show_online_status",
             "allow_friend_requests",
             "allow_follow_requests",
@@ -49,28 +50,25 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "search_engine_indexing",
             "show_in_search_results",
             "default_post_visibility",
-            
             # Notification Settings
             "email_notifications",
-            "push_notifications", 
+            "push_notifications",
             "newsletter",
-            
             # Display Settings
             "theme",
             "font_size",
             "layout_density",
-            "reduced_motion", 
+            "reduced_motion",
             "high_contrast",
             "color_blind_mode",
             "language",
-            
             # Security
             "two_factor_enabled",
-            
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
+
 
 class UserSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(read_only=True)
@@ -164,9 +162,15 @@ class AccountUpdateSerializer(serializers.Serializer):
 
         if "new_password" in data:
             if "current_password" not in data:
-                raise serializers.ValidationError({"current_password": "Current password is required to change password."})
+                raise serializers.ValidationError(
+                    {
+                        "current_password": "Current password is required to change password."
+                    }
+                )
             if not check_password(data["current_password"], user.password):
-                raise serializers.ValidationError({"current_password": "Current password is incorrect."})
+                raise serializers.ValidationError(
+                    {"current_password": "Current password is incorrect."}
+                )
             password_validation.validate_password(data["new_password"], user)
 
         return data
@@ -177,8 +181,18 @@ class AccountUpdateSerializer(serializers.Serializer):
         # Separate user & profile fields
         user_fields = ["first_name", "last_name", "email", "username", "phone_number"]
         profile_fields = [
-            "bio", "location", "birth_date", "gender", "website", "avatar", "cover_photo",
-            "work", "education", "relationship_status", "interests", "hobbies"
+            "bio",
+            "location",
+            "birth_date",
+            "gender",
+            "website",
+            "avatar",
+            "cover_photo",
+            "work",
+            "education",
+            "relationship_status",
+            "interests",
+            "hobbies",
         ]
 
         for field in user_fields:
@@ -340,37 +354,40 @@ class PrivacySettingsSerializer(serializers.ModelSerializer):
         model = UserSettings
         fields = [
             # Profile Visibility
-            'profile_visibility',
-            
+            "profile_visibility",
             # Activity Status
-            'show_activity_status',
-            'show_last_seen', 
-            'show_online_status',
-            
+            "show_activity_status",
+            "show_last_seen",
+            "show_online_status",
             # Connection Privacy
-            'allow_friend_requests',
-            'allow_follow_requests',
-            'allow_messages_from',
-            
+            "allow_friend_requests",
+            "allow_follow_requests",
+            "allow_messages_from",
             # Search & Discovery
-            'search_engine_indexing',
-            'show_in_search_results',
-            
+            "search_engine_indexing",
+            "show_in_search_results",
             # Post Visibility
-            'default_post_visibility',
+            "default_post_visibility",
         ]
 
 
 class BlockedUserSerializer(serializers.ModelSerializer):
-    blocked_user_id = serializers.IntegerField(source='blocked.id')
-    blocked_user_email = serializers.EmailField(source='blocked.email')
+    blocked_user_id = serializers.IntegerField(source="blocked.id")
+    blocked_user_email = serializers.EmailField(source="blocked.email")
     blocked_user_name = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = BlockedUser
-        fields = ['id', 'blocked_user_id', 'blocked_user_email', 'blocked_user_name', 'created_at', 'reason']
-        read_only_fields = ['id', 'created_at']
-    
+        fields = [
+            "id",
+            "blocked_user_id",
+            "blocked_user_email",
+            "blocked_user_name",
+            "created_at",
+            "reason",
+        ]
+        read_only_fields = ["id", "created_at"]
+
     def get_blocked_user_name(self, obj):
         return f"{obj.blocked.first_name} {obj.blocked.last_name}".strip()
 
@@ -378,11 +395,10 @@ class BlockedUserSerializer(serializers.ModelSerializer):
 class BlockUserSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(required=True)
     reason = serializers.CharField(required=False, allow_blank=True)
-    
+
     def validate_user_id(self, value):
         try:
             user = User.objects.get(id=value)
         except User.DoesNotExist:
             raise serializers.ValidationError("User not found")
         return value
-    
