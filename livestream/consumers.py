@@ -4,6 +4,7 @@ import json
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.contrib.auth import get_user_model
+from django.db import models
 from django.utils import timezone
 
 from .models import (LiveStream, StreamBan, StreamMessage, StreamParticipant,
@@ -30,7 +31,15 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
             await self.add_participant()
 
             # Send current viewer count
-            await self.send_viewer_count()
+            # await self.send_viewer_count()
+            viewer_count = await self.send_viewer_count()
+            await self.channel_layer.group_send(
+                self.stream_group_name,
+                {
+                    "type": "viewer_count_update",
+                    "viewer_count": viewer_count,
+                },
+            )
 
             # Send welcome message
             await self.send(
@@ -55,7 +64,15 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
         await self.remove_participant()
 
         # Update viewer count
-        await self.send_viewer_count()
+        # await self.send_viewer_count()
+        viewer_count = await self.send_viewer_count()
+        await self.channel_layer.group_send(
+            self.stream_group_name,
+            {
+                "type": "viewer_count_update",
+                "viewer_count": viewer_count,
+            },
+        )
 
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -96,7 +113,7 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
                 "type": "chat_message",
                 "message_id": str(message.id),
                 "user_id": str(self.user.id),
-                "username": self.user.username() or self.user.email,
+                "username": self.user.get_username() or self.user.email,
                 "content": content,
                 "timestamp": message.timestamp.isoformat(),
                 "avatar": await self.get_user_avatar(),
@@ -108,7 +125,10 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
         reaction_type = data.get("reaction_type", "like")
 
         # Save reaction to database
+        # reaction = await self.save_reaction(reaction_type)
         reaction = await self.save_reaction(reaction_type)
+        if not reaction:
+            return
 
         # Broadcast reaction to stream group
         await self.channel_layer.group_send(
@@ -117,7 +137,7 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
                 "type": "reaction",
                 "reaction_type": reaction_type,
                 "user_id": str(self.user.id),
-                "username": self.user.username() or self.user.email,
+                "username": self.user.get_username() or self.user.email,
                 "timestamp": reaction.timestamp.isoformat(),
             },
         )
@@ -222,9 +242,17 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def is_user_banned(self):
         """Check if user is banned from the stream"""
-        return StreamBan.objects.filter(
-            stream_id=self.stream_id, user=self.user, expires_at__gt=timezone.now()
-        ).exists()
+        return (
+            StreamBan.objects.filter(
+                stream_id=self.stream_id,
+                user=self.user,
+            )
+            .filter(
+                models.Q(expires_at__isnull=True)
+                | models.Q(expires_at__gt=timezone.now())
+            )
+            .exists()
+        )
 
     @database_sync_to_async
     def add_participant(self):
@@ -251,7 +279,7 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
 
             # Calculate watch time
             if participant.joined_at:
-                participant.watch_time = timezone.now() - participant.joined_at
+                participant.watch_time += timezone.now() - participant.joined_at
 
             participant.save()
             return True
@@ -282,12 +310,16 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def save_reaction(self, reaction_type):
-        """Save reaction to database"""
         stream = LiveStream.objects.get(id=self.stream_id)
-        reaction, created = StreamReaction.objects.get_or_create(
-            stream=stream, user=self.user, reaction_type=reaction_type
+        obj, created = StreamReaction.objects.get_or_create(
+            stream=stream,
+            user=self.user,
+            reaction_type=reaction_type,
         )
-        return reaction
+        if not created:
+            obj.delete()
+            return None
+        return obj
 
     @database_sync_to_async
     def get_user_avatar(self):
@@ -297,18 +329,21 @@ class LiveStreamConsumer(AsyncWebsocketConsumer):
         return None
 
     @database_sync_to_async
-    def send_viewer_count(self):
-        """Calculate and broadcast viewer count"""
+    def _get_viewer_count(self):
         stream = LiveStream.objects.get(id=self.stream_id)
-        viewer_count = StreamParticipant.objects.filter(
+        return StreamParticipant.objects.filter(
             stream=stream, left_at__isnull=True
         ).count()
 
-        stream.viewer_count = viewer_count
-        stream.peak_viewers = max(stream.peak_viewers, viewer_count)
-        stream.save()
-
-        return viewer_count
+    async def send_viewer_count(self):
+        viewer_count = await self._get_viewer_count()
+        await self.channel_layer.group_send(
+            self.stream_group_name,
+            {
+                "type": "viewer_count_update",
+                "viewer_count": viewer_count,
+            },
+        )
 
     @database_sync_to_async
     def start_stream(self):

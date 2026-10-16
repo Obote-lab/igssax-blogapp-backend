@@ -1,14 +1,17 @@
 import json
+
+from asgiref.sync import sync_to_async
+from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.contrib.auth import get_user_model
-from asgiref.sync import sync_to_async
-from .models import Conversation, ConversationMessage
-from .api.serializers import ConversationMessageSerializer
-from channels.db import database_sync_to_async
-from .models import Comment
-from .api.serializers import CommentSerializer
+
+from posts.querysets import visible_posts_for_user
+
+from .api.serializers import CommentSerializer, ConversationMessageSerializer
+from .models import Comment, Conversation, ConversationMessage
 
 User = get_user_model()
+from posts.models import Post
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -61,7 +64,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         elif event_type == "message":
             await self.handle_message(user, data)
 
-    # 🟢 Typing Indicator
+    # Typing Indicator
     async def handle_typing(self, user):
         await self.channel_layer.group_send(
             self.room_group_name,
@@ -69,18 +72,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     async def typing_event(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "typing",
-            "username": event["username"]
-        }))
+        await self.send(
+            text_data=json.dumps({"type": "typing", "username": event["username"]})
+        )
 
-    # 🟢 New Message (Sent + Delivered)
+    # New Message (Sent + Delivered)
     async def handle_message(self, user, data):
         message_text = data.get("message")
 
-        conversation = await sync_to_async(Conversation.objects.get)(id=self.conversation_id)
+        conversation = await sync_to_async(Conversation.objects.get)(
+            id=self.conversation_id
+        )
 
-        if not await sync_to_async(conversation.participants.filter(id=user.id).exists)():
+        if not await sync_to_async(
+            conversation.participants.filter(id=user.id).exists
+        )():
             await self.send_json({"error": "Not a participant"})
             return
 
@@ -90,7 +96,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
         # Mark delivered to all current participants except sender
-        participants = await sync_to_async(list)(conversation.participants.exclude(id=user.id))
+        participants = await sync_to_async(list)(
+            conversation.participants.exclude(id=user.id)
+        )
         for p in participants:
             await sync_to_async(message.delivered_to.add)(p)
 
@@ -101,10 +109,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     async def chat_message(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "message",
-            "data": event["message"],
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "message",
+                    "data": event["message"],
+                }
+            )
+        )
 
     # 🟢 Read Receipt (Mark as Read)
     async def handle_read(self, user, data):
@@ -123,19 +135,27 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     async def read_receipt_event(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "read_receipt",
-            "message_id": event["message_id"],
-            "username": event["username"],
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "read_receipt",
+                    "message_id": event["message_id"],
+                    "username": event["username"],
+                }
+            )
+        )
 
-    # 🟢 User Status Events
+    # User Status Events
     async def user_status(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "status",
-            "event": event["event"],
-            "username": event["username"],
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "status",
+                    "event": event["event"],
+                    "username": event["username"],
+                }
+            )
+        )
 
 
 class CommentConsumer(AsyncWebsocketConsumer):
@@ -175,9 +195,7 @@ class CommentConsumer(AsyncWebsocketConsumer):
             },
         )
 
-    # -------------------------
     # RECEIVE EVENTS
-    # -------------------------
     async def receive(self, text_data):
         data = json.loads(text_data)
         action = data.get("action")
@@ -190,9 +208,7 @@ class CommentConsumer(AsyncWebsocketConsumer):
         elif action == "typing":
             await self.handle_typing(user)
 
-    # -------------------------
     # COMMENT HANDLERS
-    # -------------------------
     async def handle_new_comment(self, user, data):
         content = data.get("content")
         if not content:
@@ -226,43 +242,69 @@ class CommentConsumer(AsyncWebsocketConsumer):
             {"type": "typing_event", "username": user.username},
         )
 
-    # -------------------------
     # SEND EVENTS
-    # -------------------------
     async def broadcast_comment(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "new_comment",
-            "comment": event["comment"],
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "new_comment",
+                    "comment": event["comment"],
+                }
+            )
+        )
 
     async def broadcast_reply(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "new_reply",
-            "comment": event["comment"],
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "new_reply",
+                    "comment": event["comment"],
+                }
+            )
+        )
 
     async def typing_event(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "typing",
-            "username": event["username"],
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "typing",
+                    "username": event["username"],
+                }
+            )
+        )
 
     async def status_event(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "status",
-            "event": event["event"],
-            "username": event["username"],
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "status",
+                    "event": event["event"],
+                    "username": event["username"],
+                }
+            )
+        )
 
-    # -------------------------
     # DB HELPERS
-    # -------------------------
     @database_sync_to_async
     def save_comment(self, user, content, parent_id):
-        parent = Comment.objects.filter(id=parent_id).first() if parent_id else None
+        post = (
+            Post.objects.filter(id=self.post_id)
+            .filter(visible_posts_for_user(user))
+            .first()
+        )
+
+        if not post:
+            raise PermissionError("Cannot comment on this post")
+
+        parent = (
+            Comment.objects.filter(id=parent_id, post=post).first()
+            if parent_id
+            else None
+        )
+
         return Comment.objects.create(
             author=user,
-            post_id=self.post_id,
+            post=post,
             content=content,
             parent=parent,
         )

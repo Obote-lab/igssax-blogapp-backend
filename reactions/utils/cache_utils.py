@@ -1,6 +1,7 @@
-from django.core.cache import cache
 from django.contrib.contenttypes.models import ContentType
+from django.core.cache import cache
 from django.db.models import Count
+
 from ..models import Reaction
 
 # Default cache timeout: 10 minutes

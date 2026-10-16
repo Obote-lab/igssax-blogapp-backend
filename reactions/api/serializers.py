@@ -1,7 +1,10 @@
 from django.contrib.contenttypes.models import ContentType
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
 from comments.models import Comment
 from posts.models import Post
+
 from ..models import Reaction
 
 
@@ -9,6 +12,7 @@ class ReactionSerializer(serializers.ModelSerializer):
     post = serializers.IntegerField(required=False, write_only=True)
     comment = serializers.IntegerField(required=False, write_only=True)
     username = serializers.SerializerMethodField()
+    reactions_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Reaction
@@ -21,12 +25,32 @@ class ReactionSerializer(serializers.ModelSerializer):
             "comment",
             "object_id",
             "content_type",
+            "reactions_count",
             "created_at",
         ]
-        read_only_fields = ["user", "object_id", "content_type", "created_at"]
+        read_only_fields = [
+            "user",
+            "object_id",
+            "content_type",
+            "created_at",
+            "reactions_count",
+        ]
 
-    def get_username(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_username(self, obj) -> str:
         return obj.user.username
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_reactions_count(self, obj) -> int:
+        """Return reactions_count if available, else compute summary total."""
+        target = obj.content_object
+        if hasattr(target, "reactions_count"):
+            return target.reactions_count
+        # fallback: count from DB
+        ctype = obj.content_type
+        return Reaction.objects.filter(
+            content_type=ctype, object_id=obj.object_id
+        ).count()
 
     def validate(self, attrs):
         post_id = attrs.pop("post", None)

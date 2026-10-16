@@ -1,9 +1,9 @@
 # livestream/signals/message_signals.py
 from django.db import transaction
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from ..models import StreamMessage, StreamAnalytics, StreamModerationLog
+from ..models import StreamAnalytics, StreamMessage, StreamModerationLog
 
 
 @receiver(post_save, sender=StreamMessage)
@@ -37,7 +37,8 @@ def handle_new_message(sender, instance, created, **kwargs):
 @receiver(post_save, sender=StreamMessage)
 def handle_flagged_message(sender, instance, **kwargs):
     """Auto-moderate heavily flagged messages."""
-    if instance.is_flagged and instance.flag_count >= 3:
+    # if instance.is_flagged and instance.flag_count >= 3:
+    if instance.is_flagged and instance.flag_count >= 3 and not instance.is_moderated:
         instance.is_moderated = True
         instance.save(update_fields=["is_moderated"])
 

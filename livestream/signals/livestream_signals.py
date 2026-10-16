@@ -1,7 +1,7 @@
 # livestream/signals/livestream_signals.py
+from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.db import transaction
 from django.utils import timezone
 
 from ..models import LiveStream, StreamAnalytics, StreamModerationLog
@@ -9,6 +9,7 @@ from ..models import LiveStream, StreamAnalytics, StreamModerationLog
 # Optional: notification service (fail gracefully)
 try:
     from ..services import StreamNotificationService
+
     notification_service = StreamNotificationService()
 except ImportError:
     notification_service = None
@@ -22,7 +23,15 @@ def handle_livestream_creation(sender, instance, created, **kwargs):
         # Create analytics record for new stream
         StreamAnalytics.objects.create(stream=instance)
     else:
-        # Handle status changes for existing streams
+        if not instance.pk:
+            return
+
+    try:
+        previous = LiveStream.objects.get(pk=instance.pk)
+    except LiveStream.DoesNotExist:
+        return
+
+    if previous.status != instance.status:
         handle_stream_status_change(instance)
 
         # Update analytics if metrics have changed

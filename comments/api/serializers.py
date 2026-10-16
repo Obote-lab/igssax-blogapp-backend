@@ -1,18 +1,19 @@
-from django.contrib.contenttypes.models import ContentType
-from rest_framework import serializers
-from reactions.models import Reaction
-from ..models import Comment, Conversation, ConversationMessage, CommentAttachment
 from django.contrib.auth import get_user_model
-from users.models import Profile,User  
+from django.contrib.contenttypes.models import ContentType
+from drf_spectacular.utils import extend_schema_field
+from rest_framework import serializers
+
+from reactions.models import Reaction
 from reactions.utils.cache_utils import get_reaction_summary_cached
+from users.models import Profile, User
 
-
-
+from ..models import (Comment, CommentAttachment, Conversation,
+                      ConversationMessage)
 
 User = get_user_model()
 
 
-# --- MINI PROFILE SERIALIZER ---
+# MINI PROFILE SERIALIZER
 class ProfileMiniSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
 
@@ -20,6 +21,7 @@ class ProfileMiniSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ["avatar", "avatar_url"]
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_avatar_url(self, obj):
         request = self.context.get("request")
         if obj.avatar and hasattr(obj.avatar, "url"):
@@ -27,7 +29,7 @@ class ProfileMiniSerializer(serializers.ModelSerializer):
         return None
 
 
-# --- MINI USER SERIALIZER ---
+# MINI USER SERIALIZER
 class UserProfileMiniSerializer(serializers.ModelSerializer):
     profile = ProfileMiniSerializer(read_only=True)
 
@@ -58,14 +60,16 @@ class RecursiveCommentSerializer(serializers.ModelSerializer):
             "reactions",
         ]
 
-    def get_replies(self, obj):
+    @extend_schema_field(serializers.ListField(child=serializers.JSONField()))
+    def get_replies(self, obj) -> list:
         if obj.replies.exists():
             return RecursiveCommentSerializer(
                 obj.replies.all(), many=True, context=self.context
             ).data
         return []
 
-    def get_reactions(self, obj):
+    @extend_schema_field(serializers.DictField())
+    def get_reactions(self, obj) -> dict:
         ctype = ContentType.objects.get_for_model(obj)
         reactions = Reaction.objects.filter(content_type=ctype, object_id=obj.id)
         summary = {}
@@ -95,7 +99,8 @@ class CommentAttachmentSerializer(serializers.ModelSerializer):
         model = CommentAttachment
         fields = ["id", "file", "file_url", "gif_url", "uploaded_at"]
 
-    def get_file_url(self, obj):
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_file_url(self, obj) -> str:
         request = self.context.get("request")
         if obj.file and hasattr(obj.file, "url"):
             return request.build_absolute_uri(obj.file.url)
@@ -106,7 +111,6 @@ class CommentSerializer(serializers.ModelSerializer):
     author = UserProfileMiniSerializer(read_only=True)
     author_name = serializers.CharField(source="author.username", read_only=True)
     author_avatar = serializers.SerializerMethodField()
-    # Use LimitedRecursiveField instead of manual get_replies
     replies = LimitedRecursiveField(many=True, read_only=True)
     reaction_summary = serializers.SerializerMethodField()
     attachments = CommentAttachmentSerializer(many=True, read_only=True)
@@ -129,7 +133,8 @@ class CommentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["author", "created_at", "updated_at"]
 
-    def get_author_avatar(self, obj):
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_author_avatar(self, obj) -> str:
         try:
             if obj.author.profile.avatar:
                 request = self.context.get("request")
@@ -138,6 +143,7 @@ class CommentSerializer(serializers.ModelSerializer):
             pass
         return None
 
+    @extend_schema_field(serializers.DictField())
     def get_reaction_summary(self, obj):
         if hasattr(obj, "likes"):
             return {
@@ -147,7 +153,6 @@ class CommentSerializer(serializers.ModelSerializer):
                 "sad": getattr(obj, "sads", 0),
                 "angry": getattr(obj, "angrys", 0),
             }
-        from reactions.utils.cache_utils import get_reaction_summary_cached
         return get_reaction_summary_cached(Comment, obj.id)
 
     def create(self, validated_data):
@@ -174,6 +179,7 @@ class CommentSerializer(serializers.ModelSerializer):
             post_id = request.data.get("post")
             if post_id:
                 from posts.models import Post
+
                 try:
                     validated_data["post"] = Post.objects.get(id=post_id)
                 except Post.DoesNotExist:
@@ -185,7 +191,9 @@ class CommentSerializer(serializers.ModelSerializer):
             try:
                 validated_data["parent"] = Comment.objects.get(id=parent_id)
             except Comment.DoesNotExist:
-                raise serializers.ValidationError({"parent": ["Parent comment not found."]})
+                raise serializers.ValidationError(
+                    {"parent": ["Parent comment not found."]}
+                )
 
         # Set author and content
         validated_data["author"] = request.user
@@ -208,10 +216,11 @@ class CommentSerializer(serializers.ModelSerializer):
         """
         return value or ""
 
- 
+
 # --- CONVERSATION SERIALIZERS ---
 class ConversationMessageSerializer(serializers.ModelSerializer):
     """Serialize individual messages inside a conversation."""
+
     sender_username = serializers.CharField(source="sender.username", read_only=True)
     delivered_to = serializers.SerializerMethodField()
     read_by = serializers.SerializerMethodField()
@@ -229,15 +238,18 @@ class ConversationMessageSerializer(serializers.ModelSerializer):
             "read_by",
         ]
 
-    def get_delivered_to(self, obj):
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_delivered_to(self, obj) -> list:
         return [user.username for user in obj.delivered_to.all()]
 
-    def get_read_by(self, obj):
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_read_by(self, obj) -> list:
         return [user.username for user in obj.read_by.all()]
 
 
 class ConversationSerializer(serializers.ModelSerializer):
     """Serialize an entire conversation including its messages."""
+
     participants = serializers.StringRelatedField(many=True, read_only=True)
     messages = ConversationMessageSerializer(many=True, read_only=True)
 

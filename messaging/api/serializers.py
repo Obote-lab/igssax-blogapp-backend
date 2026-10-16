@@ -1,7 +1,7 @@
-from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from rest_framework import serializers
+
 from ..models import DirectMessage
-from reactions.utils.cache_utils import get_reaction_summary_for_instance
 
 User = get_user_model()
 
@@ -18,7 +18,9 @@ class DirectMessageSerializer(serializers.ModelSerializer):
     sender_id = serializers.IntegerField(write_only=True, required=False)
     recipient_id = serializers.IntegerField(write_only=True, required=True)
     attachment = serializers.FileField(required=False, allow_null=True)
-    in_reply_to = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    in_reply_to = serializers.IntegerField(
+        write_only=True, required=False, allow_null=True
+    )
     read = serializers.BooleanField(read_only=True)
     delivered = serializers.BooleanField(read_only=True)
 
@@ -38,7 +40,14 @@ class DirectMessageSerializer(serializers.ModelSerializer):
             "created_at",
             "conversation_key",
         ]
-        read_only_fields = ["id", "sender", "delivered", "read", "created_at", "conversation_key"]
+        read_only_fields = [
+            "id",
+            "sender",
+            "delivered",
+            "read",
+            "created_at",
+            "conversation_key",
+        ]
 
     def create(self, validated_data):
         """
@@ -53,6 +62,7 @@ class DirectMessageSerializer(serializers.ModelSerializer):
 
         # Resolve recipient
         from django.contrib.auth import get_user_model
+
         User = get_user_model()
         try:
             recipient = User.objects.get(id=recipient_id)
@@ -65,7 +75,9 @@ class DirectMessageSerializer(serializers.ModelSerializer):
             try:
                 in_reply_to = DirectMessage.objects.get(id=in_reply_to_id)
             except DirectMessage.DoesNotExist:
-                raise serializers.ValidationError({"in_reply_to": "Message to reply to not found"})
+                raise serializers.ValidationError(
+                    {"in_reply_to": "Message to reply to not found"}
+                )
 
         dm = DirectMessage.objects.create(
             sender=sender,

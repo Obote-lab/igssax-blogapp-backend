@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.db import models
-from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+
 User = settings.AUTH_USER_MODEL
 
 
@@ -17,7 +18,9 @@ class Notification(models.Model):
         COMMENT_MENTION = "comment_mention", _("Comment Mention")
         SYSTEM = "system", _("System Notification")
 
-    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
+    recipient = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="notifications"
+    )
     sender = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -30,21 +33,22 @@ class Notification(models.Model):
     )
     title = models.CharField(max_length=255)
     message = models.TextField()
-
-    # Generic foreign key to any related object
     content_type = models.ForeignKey(
         "contenttypes.ContentType", on_delete=models.CASCADE, null=True, blank=True
     )
     object_id = models.PositiveIntegerField(null=True, blank=True)
-
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
-    timestamp = models.DateTimeField(default=timezone.now) 
     extra_data = models.JSONField(blank=True, null=True)
-  
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["recipient", "sender", "notification_type", "object_id"],
+                name="unique_notification_per_object",
+            )
+        ]
         indexes = [
             models.Index(fields=["recipient", "is_read", "created_at"]),
         ]
@@ -61,8 +65,6 @@ class NotificationPreference(models.Model):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name="notification_preferences"
     )
-
-    # Email notifications
     email_friend_requests = models.BooleanField(default=True)
     email_friend_acceptances = models.BooleanField(default=True)
     email_post_likes = models.BooleanField(default=True)

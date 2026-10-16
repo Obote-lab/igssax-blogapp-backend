@@ -1,8 +1,14 @@
-from django.contrib.auth.models import (AbstractBaseUser, BaseUserManager,
-                                        PermissionsMixin)
+from django.contrib.auth.models import (AbstractBaseUser, BaseUserManager,PermissionsMixin)
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from django.core.validators import RegexValidator
 
+
+
+phone_validator = RegexValidator(
+    regex=r'^\+?1?\d{9,15}$',
+    message="Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
+)
 
 class UserManager(BaseUserManager):
     """Custom user manager where email is the unique identifier"""
@@ -35,7 +41,6 @@ class UserManager(BaseUserManager):
             raise ValueError("Superuser must have is_staff=True.")
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser must have is_superuser=True.")
-
         return self._create_user(email, password, **extra_fields)
 
 
@@ -48,12 +53,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(_("email address"), unique=True)
     first_name = models.CharField(_("first name"), max_length=100, blank=True)
     last_name = models.CharField(_("last name"), max_length=100, blank=True)
-    username = models.CharField(
-        _("username"), max_length=100, unique=True, blank=True, null=True
-    )
-    phone_number = models.CharField(
-        _("phone number"), max_length=20, blank=True, null=True
-    )
+    username = models.CharField(_("username"), max_length=100, blank=True, null=True)
+    phone_number = models.CharField( _("phone number"), max_length=20, blank=True, null=True,validators=[phone_validator] )
     is_verified = models.BooleanField(_("verified account"), default=False)
     last_login_ip = models.GenericIPAddressField(
         _("last login IP"), null=True, blank=True
@@ -66,7 +67,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     is_active = models.BooleanField(_("active"), default=True)
     is_staff = models.BooleanField(_("staff status"), default=False)
-    is_superuser = models.BooleanField(_("superuser status"), default=False)
     date_joined = models.DateTimeField(_("date joined"), auto_now_add=True)
 
     objects = UserManager()
@@ -74,18 +74,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
-    # Follow helpers
     def follow(self, user):
-        from .models import Follow
-
         if self != user and not self.is_following(user):
             Follow.objects.create(follower=self, following=user)
             return True
         return False
 
     def unfollow(self, user):
-        from .models import Follow
-
         Follow.objects.filter(follower=self, following=user).delete()
         return True
 
@@ -95,35 +90,32 @@ class User(AbstractBaseUser, PermissionsMixin):
     def is_followed_by(self, user):
         return self.followers.filter(follower=user).exists()
 
-        # Friends helpers
-
     def send_friend_request(self, user):
-        from .models import Friendship
-
-        if (
-            self != user
-            and not Friendship.objects.filter(requester=self, receiver=user).exists()
-        ):
-            Friendship.objects.create(requester=self, receiver=user)
-            return True
-        return False
+        if self == user:
+            return False
+        if Friendship.objects.filter(requester=self, receiver=user).exists():
+            return False
+        Friendship.objects.create(requester=self, receiver=user)
+        return True
 
     def get_friends(self):
-        from .models import Friendship
+        friendships = Friendship.objects.filter(
+            models.Q(requester=self) | models.Q(receiver=self),
+            status=Friendship.Status.ACCEPTED,
+        )
 
-        return User.objects.filter(
-            id__in=Friendship.objects.filter(
-                (models.Q(requester=self) | models.Q(receiver=self)),
-                status=Friendship.Status.ACCEPTED,
-            ).values_list("requester", "receiver")
-        ).exclude(id=self.id)
-    
+        friend_ids = friendships.values_list("requester_id", flat=True).union(
+            friendships.values_list("receiver_id", flat=True)
+        )
+
+        return User.objects.filter(id__in=friend_ids).exclude(id=self.id)
+
     def get_full_name(self):
-        return f"{self.first_name} {self.last_name}".strip() if hasattr(self, "first_name") else self.username
+        full_name = f"{self.first_name} {self.last_name}".strip()
+        return full_name or self.email
 
     def __str__(self):
-        return self.get_full_name() or self.email
-
+        return self.get_full_name()
 
 class Friendship(models.Model):
     class Status(models.TextChoices):
@@ -143,10 +135,28 @@ class Friendship(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("requester", "receiver")
+        # unique_together = ("requester", "receiver")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["requester", "receiver"], name="unique_friendship"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["requester"]),
+            models.Index(fields=["receiver"]),
+            models.Index(fields=["status"]),
+        ]
 
     def __str__(self):
         return f"{self.requester.email} -> {self.receiver.email} ({self.status})"
+
+    def accept(self):
+        self.status = Friendship.Status.ACCEPTED
+        self.save(update_fields=["status"])
+
+    def reject(self):
+        self.status = Friendship.Status.REJECTED
+        self.save(update_fields=["status"])
 
 
 class Profile(models.Model):
@@ -154,14 +164,12 @@ class Profile(models.Model):
     bio = models.TextField(_("bio"), blank=True)
     location = models.CharField(_("location"), max_length=100, blank=True)
     birth_date = models.DateField(_("birth date"), null=True, blank=True)
-
     gender = models.CharField(
         _("gender"),
         max_length=10,
         choices=[("male", "Male"), ("female", "Female"), ("other", "Other")],
         blank=True,
     )
-
     website = models.URLField(_("website"), blank=True, null=True)
     avatar = models.ImageField(upload_to="avatars/", null=True, blank=True)
     cover_photo = models.ImageField(upload_to="covers/", null=True, blank=True)
@@ -182,8 +190,6 @@ class Profile(models.Model):
     )
     interests = models.TextField(_("interests"), blank=True)
     hobbies = models.TextField(_("hobbies"), blank=True)
-
-    # Stats
     followers_count = models.PositiveIntegerField(default=0)
     following_count = models.PositiveIntegerField(default=0)
     friends_count = models.PositiveIntegerField(default=0)
@@ -205,7 +211,16 @@ class Follow(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("follower", "following")
+        # unique_together = ("follower", "following")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["follower", "following"], name="unique_follow"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["follower"]),
+            models.Index(fields=["following"]),
+        ]
 
     def __str__(self):
         return f"{self.follower.email} follows {self.following.email}"
@@ -232,6 +247,19 @@ class UserSettings(models.Model):
         ],
         default="everyone",
     )
+    show_email = models.BooleanField(default=False)
+    show_phone = models.BooleanField(default=False)
+    last_seen_visibility = models.CharField(
+        max_length=20,
+        choices=[
+            ("everyone", "Everyone"),
+            ("friends", "Friends Only"),
+            ("nobody", "Nobody"),
+        ],
+        default="friends",
+    )
+    allow_tagging = models.BooleanField(default=True)
+    allow_comments = models.BooleanField(default=True)
     search_engine_indexing = models.BooleanField(default=True)
     show_in_search_results = models.BooleanField(default=True)
     default_post_visibility = models.CharField(
@@ -304,7 +332,6 @@ class UserSettings(models.Model):
         return f"Settings for {self.user.email}"
 
     def save(self, *args, **kwargs):
-        # Ensure font size is within reasonable bounds
         if self.font_size < 12:
             self.font_size = 12
         elif self.font_size > 20:
@@ -326,6 +353,10 @@ class BlockedUser(models.Model):
         unique_together = ("blocker", "blocked")
         verbose_name = "Blocked User"
         verbose_name_plural = "Blocked Users"
+        indexes = [
+            models.Index(fields=["blocker"]),
+            models.Index(fields=["blocked"]),
+        ]
 
     def __str__(self):
         return f"{self.blocker.email} blocked {self.blocked.email}"

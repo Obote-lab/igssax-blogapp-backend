@@ -1,8 +1,8 @@
 from django.db import models
-from django.db.models import Q
-from rest_framework import permissions, viewsets, status
+from django.db.models import Count, Q
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from ..models import DirectMessage
@@ -18,6 +18,7 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
     - POST /messages/{id}/mark_read/ -> mark a message as read (or use bulk)
     - GET /messages/unread_count/ -> unread counts aggregated by conversation
     """
+
     serializer_class = DirectMessageSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -25,17 +26,17 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         # Only return messages where the user is sender or recipient and not soft-deleted
-        return DirectMessage.objects.filter(
-            (Q(sender=user) & Q(deleted_by_sender=False)) |
-            (Q(recipient=user) & Q(deleted_by_recipient=False))
-        ).select_related("sender", "recipient").order_by("-created_at")
+        return (
+            DirectMessage.objects.filter(
+                (Q(sender=user) & Q(deleted_by_sender=False))
+                | (Q(recipient=user) & Q(deleted_by_recipient=False))
+            )
+            .select_related("sender", "recipient")
+            .order_by("-created_at")
+        )
 
     def perform_create(self, serializer):
-        # serializer.create handles recipient resolution; sender is request.user
-        dm = serializer.save()
-        # mark delivered = True when created (simple model for 1-1 DM)
-        dm.delivered = True
-        dm.save(update_fields=["delivered"])
+        serializer.save(delivered=True)
 
     @action(detail=False, methods=["get"])
     def conversation(self, request):
@@ -45,10 +46,15 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
 
         user = request.user
         # conversation_key ensures both directions share same key
-        low, high = (min(int(user.id), int(recipient_id)), max(int(user.id), int(recipient_id)))
+        low, high = (
+            min(int(user.id), int(recipient_id)),
+            max(int(user.id), int(recipient_id)),
+        )
         conv_key = f"dm_{low}_{high}"
 
-        messages = self.get_queryset().filter(conversation_key=conv_key).order_by("created_at")
+        messages = (
+            self.get_queryset().filter(conversation_key=conv_key).order_by("created_at")
+        )
         page = self.paginate_queryset(messages)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -63,7 +69,10 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
         dm = self.get_object()
         user = request.user
         if dm.recipient != user:
-            return Response({"error": "Only the recipient can mark the message as read."}, status=403)
+            return Response(
+                {"error": "Only the recipient can mark the message as read."},
+                status=403,
+            )
         if not dm.read:
             dm.read = True
             dm.save(update_fields=["read"])
@@ -79,21 +88,35 @@ class DirectMessageViewSet(viewsets.ModelViewSet):
         if not recipient_id:
             return Response({"error": "recipient_id is required"}, status=400)
         user = request.user
-        low, high = (min(int(user.id), int(recipient_id)), max(int(user.id), int(recipient_id)))
+        low, high = (
+            min(int(user.id), int(recipient_id)),
+            max(int(user.id), int(recipient_id)),
+        )
         conv_key = f"dm_{low}_{high}"
 
-        updated = self.get_queryset().filter(conversation_key=conv_key, recipient=user, read=False).update(read=True)
+        updated = (
+            self.get_queryset()
+            .filter(conversation_key=conv_key, recipient=user, read=False)
+            .update(read=True)
+        )
         return Response({"marked": updated})
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request):
         """Return the total unread messages for the current user and breakdown by conversation."""
         user = request.user
-        total_unread = DirectMessage.objects.filter(recipient=user, read=False, deleted_by_recipient=False).count()
+        total_unread = DirectMessage.objects.filter(
+            recipient=user, read=False, deleted_by_recipient=False
+        ).count()
 
         # breakdown by conversation_key
-        from django.db.models import Count
-        breakdown_qs = DirectMessage.objects.filter(recipient=user, read=False, deleted_by_recipient=False).values("conversation_key").annotate(count=Count("id"))
+        breakdown_qs = (
+            DirectMessage.objects.filter(
+                recipient=user, read=False, deleted_by_recipient=False
+            )
+            .values("conversation_key")
+            .annotate(count=Count("id"))
+        )
         breakdown = {item["conversation_key"]: item["count"] for item in breakdown_qs}
 
         return Response({"total_unread": total_unread, "by_conversation": breakdown})

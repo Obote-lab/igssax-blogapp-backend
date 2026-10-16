@@ -1,5 +1,7 @@
 from rest_framework import permissions
 
+from .models import StreamParticipant
+
 
 class IsStreamerOrReadOnly(permissions.BasePermission):
     """
@@ -7,7 +9,6 @@ class IsStreamerOrReadOnly(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        # Read permissions are allowed to any request
         if request.method in permissions.SAFE_METHODS:
             return True
 
@@ -23,13 +24,13 @@ class IsStreamParticipant(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
-
         # For create operations, check if user is in the stream
         if request.method == "POST":
             stream_id = request.data.get("stream")
-            if stream_id:
-                from .models import StreamParticipant
+            if not stream_id:
+                return False
 
+            if stream_id:
                 return StreamParticipant.objects.filter(
                     stream_id=stream_id, user=request.user, left_at__isnull=True
                 ).exists()

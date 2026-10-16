@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from users.api.serializers import UserSerializer
@@ -57,18 +58,21 @@ class LiveStreamSerializer(serializers.ModelSerializer):
             "current_viewers",
         ]
 
-    def get_is_live(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_live(self, obj) -> bool:
         return obj.is_live()
 
+    @extend_schema_field(serializers.BooleanField())
     def get_can_view(self, obj):
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return obj.can_view(request.user)
         return obj.privacy == LiveStream.PrivacyLevel.PUBLIC
 
-    def get_current_viewers(self, obj):
+    @extend_schema_field(serializers.IntegerField())
+    def get_current_viewers(self, obj) -> int:
         # Real-time active participants count
-        return obj.participants.filter(left_at__isnull=True).count()
+        return obj.streamparticipant_set.filter(left_at__isnull=True).count()
 
 
 class LiveStreamCreateSerializer(serializers.ModelSerializer):
@@ -135,7 +139,8 @@ class StreamParticipantSerializer(serializers.ModelSerializer):
             "is_online",
         ]
 
-    def get_is_online(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_online(self, obj) -> bool:
         """Check if participant is currently online (in last 2 minutes)"""
         from datetime import timedelta
 
@@ -179,7 +184,8 @@ class StreamMessageSerializer(serializers.ModelSerializer):
             "can_moderate",
         ]
 
-    def get_can_moderate(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_moderate(self, obj) -> bool:
         """Check if current user can moderate this message"""
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
@@ -190,7 +196,8 @@ class StreamMessageSerializer(serializers.ModelSerializer):
             return True
 
         # Check if user is a moderator
-        return obj.stream.participants.filter(
+        return StreamParticipant.objects.filter(
+            stream=obj.stream,
             user=request.user,
             role=StreamParticipant.ParticipantRole.MODERATOR,
             left_at__isnull=True,
@@ -243,7 +250,8 @@ class StreamReactionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "stream", "user", "timestamp", "emoji"]
 
-    def get_emoji(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_emoji(self, obj) -> str:
         """Get the emoji representation of the reaction"""
         emoji_map = {
             "like": "👍",
@@ -298,7 +306,8 @@ class StreamAnalyticsSerializer(serializers.ModelSerializer):
             "engagement_rate",
         ]
 
-    def get_engagement_rate(self, obj):
+    @extend_schema_field(serializers.FloatField())
+    def get_engagement_rate(self, obj) -> float:
         """Calculate engagement rate as percentage"""
         if obj.peak_concurrent_viewers > 0:
             total_engagement = obj.total_messages + obj.total_reactions
@@ -395,18 +404,21 @@ class LiveStreamDetailSerializer(LiveStreamSerializer):
             "tags",
         ]
 
-    def get_streamer_full_profile(self, obj):
+    @extend_schema_field(serializers.DictField())
+    def get_streamer_full_profile(self, obj) -> dict:
         from users.api.serializers import UserProfileSerializer
 
         return UserProfileSerializer(obj.streamer.profile, context=self.context).data
 
-    def get_is_following_streamer(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_following_streamer(self, obj) -> bool:
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return request.user.following.filter(id=obj.streamer.id).exists()
         return False
 
-    def get_chat_messages_count(self, obj):
+    @extend_schema_field(serializers.IntegerField())
+    def get_chat_messages_count(self, obj) -> int:
         return obj.messages.count()
 
 
@@ -428,8 +440,9 @@ class StreamRecordingSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "stream", "created_at"]
 
-    def get_download_url(self, obj):
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_download_url(self, obj) -> str:
         request = self.context.get("request")
-        if request and obj.video_file:
+        if request and getattr(obj, "video_file", None):
             return request.build_absolute_uri(obj.video_file.url)
         return None

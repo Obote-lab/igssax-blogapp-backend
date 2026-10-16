@@ -6,7 +6,7 @@ from django.dispatch import receiver
 from django.utils.text import Truncator
 
 from comments.models import Comment
-from messaging.models import DirectMessage 
+from messaging.models import DirectMessage
 
 from .models import Notification, NotificationPreference
 from .utils import create_notification
@@ -102,7 +102,7 @@ def detect_mentions_and_notify(text, sender, instance):
             continue
 
 
-#5. Welcome Notification for New Users
+# 5. Welcome Notification for New Users
 @receiver(post_save, sender=User)
 def send_welcome_notification(sender, instance, created, **kwargs):
     if created:
@@ -110,5 +110,6 @@ def send_welcome_notification(sender, instance, created, **kwargs):
             recipient=instance,
             title="Welcome to the platform!",
             message=f"Hello {instance.username}, your account has been created successfully.",
-            notification_type="user_welcome",
+            # notification_type="user_welcome",
+            notification_type=Notification.NotificationType.SYSTEM,
         )

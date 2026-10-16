@@ -1,32 +1,31 @@
-from django.db.models import Count, OuterRef, Subquery, IntegerField
+from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
+from django.db.models import Count, IntegerField, OuterRef, Subquery
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.response import Response
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.auth import get_user_model
-
-from ..models import Comment, CommentAttachment, Conversation, ConversationMessage
-from .serializers import (
-    CommentSerializer,
-    ConversationSerializer,
-    ConversationMessageSerializer,
-)
-from reactions.models import Reaction
-from posts.models import Post
-
-
-# --- PAGINATION ---
+#  PAGINATION
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
+
+from posts.models import Post
+from reactions.models import Reaction
+
+from ..models import (Comment, CommentAttachment, Conversation,
+                      ConversationMessage)
+from .serializers import (CommentSerializer, ConversationMessageSerializer,
+                          ConversationSerializer)
+
+
 class MessagePagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
     max_page_size = 200
 
 
-# --- PERMISSIONS ---
+#  PERMISSIONS
 class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:
@@ -36,11 +35,11 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
         )
 
 
-# --- COMMENT VIEWSET ---
+# COMMENT VIEWSET
 class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
-    parser_classes = [MultiPartParser, FormParser, JSONParser] 
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         """Fetch all top-level comments for a post, with cached nested prefetching."""
@@ -69,8 +68,10 @@ class CommentViewSet(viewsets.ModelViewSet):
             )
             .order_by("-created_at")
         )
-
-        cache.set(cache_key, queryset, timeout=60)
+        cache_key = f"comments_post_{post_id}"
+        cached_ids = cache.get(cache_key)
+        if cached_ids:
+            return Comment.objects.filter(id__in=cached_ids)
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -80,15 +81,12 @@ class CommentViewSet(viewsets.ModelViewSet):
         print("🎯 CommentViewSet.create() called")
         print("📦 Request data:", dict(request.data))
         print("📎 Request FILES:", dict(request.FILES))
-        
+
         try:
             return super().create(request, *args, **kwargs)
         except Exception as e:
             print(f"❌ Error in CommentViewSet.create(): {str(e)}")
-            return Response(
-                {"error": str(e)}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_create(self, serializer):
         """
@@ -105,12 +103,9 @@ class CommentViewSet(viewsets.ModelViewSet):
             current_parent = current_parent.parent
             if depth >= 4:
                 raise ValidationError("Maximum comment nesting (4 levels) reached.")
-
-        # Create comment (serializer handles attachments)
-        # Note: The author is now set in the serializer's create method
         comment = serializer.save()
 
-        # 🔄 Invalidate cache for this post
+        # Invalidate cache for this post
         if comment.post_id:
             cache_key = f"comments_post_{comment.post_id}"
             cache.delete(cache_key)
@@ -153,7 +148,7 @@ class CommentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(replies, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=["post"], url_path="react")
+    @action(detail=True, methods=["post"], url_path="reactions")
     def react(self, request, pk=None):
         """Toggle or update a reaction on a comment."""
         comment = self.get_object()
@@ -181,7 +176,7 @@ class CommentViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["delete"], url_path="react")
+    @action(detail=True, methods=["delete"], url_path="reactions")
     def remove_reaction(self, request, pk=None):
         """Remove a user's reaction from a comment."""
         comment = self.get_object()
@@ -199,15 +194,18 @@ class CommentViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-# --- CONVERSATION VIEWSET ---
+
+# CONVERSATION VIEWSET
 class ConversationViewSet(viewsets.ModelViewSet):
     serializer_class = ConversationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Conversation.objects.filter(
-            participants=self.request.user
-        ).prefetch_related("participants", "messages__sender", "messages__sender__profile")
+        if getattr(self, "swagger_fake_view", False):
+            return Conversation.objects.none()
+        return Conversation.objects.filter(users=self.request.user).prefetch_related(
+            "participants", "messages__sender", "messages__sender__profile"
+        )
 
     def perform_create(self, serializer):
         conversation = serializer.save(created_by=self.request.user)
@@ -232,11 +230,13 @@ class ConversationViewSet(viewsets.ModelViewSet):
             return Response({"error": "User already a participant"}, status=400)
 
         conversation.participants.add(user)
-        return Response({
-            "success": True,
-            "message": f"User {user.username} added",
-            "user": {"id": user.id, "username": user.username}
-        })
+        return Response(
+            {
+                "success": True,
+                "message": f"User {user.username} added",
+                "user": {"id": user.id, "username": user.username},
+            }
+        )
 
     @action(detail=True, methods=["post"])
     def leave(self, request, pk=None):
@@ -249,13 +249,17 @@ class ConversationViewSet(viewsets.ModelViewSet):
         return Response({"success": "Left conversation"})
 
 
-# --- MESSAGE VIEWSET ---
+# MESSAGE VIEWSET
 class ConversationMessageViewSet(viewsets.ModelViewSet):
+    queryset = ConversationMessage.objects.none()
     serializer_class = ConversationMessageSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = MessagePagination
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return ConversationMessage.objects.none()
+
         return (
             ConversationMessage.objects.filter(
                 conversation__participants=self.request.user
@@ -277,6 +281,8 @@ class ConversationMessageViewSet(viewsets.ModelViewSet):
             return Response({"error": "conversation_id required"}, status=400)
 
         messages = self.get_queryset().filter(conversation_id=conversation_id)
-        messages.update(delivered_to=request.user)
+        # messages.update(delivered_to=request.user)
+        for msg in messages:
+            msg.delivered_to.add(request.user)
         serializer = self.get_serializer(messages, many=True)
         return Response(serializer.data)

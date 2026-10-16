@@ -1,7 +1,6 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
-
 from .api.viewsets import (AccountUpdateView, BlockedUsersViewSet,
                            FriendshipViewSet, GoogleLoginView,
                            GoogleSignUpView, MyTokenObtainPairView,
@@ -9,21 +8,17 @@ from .api.viewsets import (AccountUpdateView, BlockedUsersViewSet,
                            PasswordResetRequestView, PrivacySettingsView,
                            RegisterView, SettingsViewSet, UserProfileUpdate,
                            UserViewSet)
-
 router = DefaultRouter()
 router.register(r"users", UserViewSet, basename="users")
 router.register(r"friendships", FriendshipViewSet, basename="friendships")
 router.register(r"blocked-users", BlockedUsersViewSet, basename="blocked-users")
 
 settings_viewset = SettingsViewSet.as_view(
-    {
-        "get": "retrieve",
-        "patch": "partial_update",
-    }
+    {"get": "retrieve", "patch": "partial_update"}
 )
 
 urlpatterns = [
-    # Auth endpoints - consistent with frontend expectations
+    # JWT auth
     path("auth/login/", MyTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/register/", RegisterView.as_view(), name="register"),
@@ -42,11 +37,14 @@ urlpatterns = [
     # Google OAuth
     path("auth/google/login/", GoogleLoginView.as_view(), name="google_login"),
     path("auth/google/signup/", GoogleSignUpView.as_view(), name="google_signup"),
-    # User profile & settings
-    path("user/me/", AccountUpdateView.as_view(), name="account-update"),
-    path("user/profile/update/", UserProfileUpdate.as_view(), name="profile_update"),
+    # User profile & account
+    path("user/me/", AccountUpdateView.as_view(), name="user-me"),
+    path(
+        "user/profile/update/", UserProfileUpdate.as_view(), name="user-profile-update"
+    ),
+    # Settings
     path("settings/", settings_viewset, name="user_settings"),
     path("privacy-settings/", PrivacySettingsView.as_view(), name="privacy-settings"),
-    # Include router URLs (users/, friendships/)
+    # Include router URLs (users/, friendships/, blocked-users/)
     path("", include(router.urls)),
 ]

@@ -1,10 +1,10 @@
 # livestream/signals/participant_signals.py
 from django.db import transaction
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from ..models import StreamParticipant, StreamModerationLog
+from ..models import StreamModerationLog, StreamParticipant
 
 
 @receiver(post_save, sender=StreamParticipant)
@@ -31,7 +31,11 @@ def handle_participant_activity(sender, instance, created, **kwargs):
 
             all_participants = StreamParticipant.objects.filter(stream=stream)
             total_watch = sum(
-                (p.watch_time.total_seconds() for p in all_participants if p.watch_time),
+                (
+                    p.watch_time.total_seconds()
+                    for p in all_participants
+                    if p.watch_time
+                ),
                 0,
             )
             avg_seconds = total_watch / max(all_participants.count(), 1)

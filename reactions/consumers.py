@@ -1,12 +1,15 @@
 # reactions/consumers.py
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
+
 from channels.db import database_sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
 from django.contrib.contenttypes.models import ContentType
-from posts.models import Post
+
 from comments.models import Comment
-from .models import Reaction
+from posts.models import Post
+
 from .api.serializers import ReactionSerializer
+from .models import Reaction
 from .utils.cache_utils import get_reaction_summary_cached
 
 
@@ -38,7 +41,6 @@ class ReactionConsumer(AsyncWebsocketConsumer):
         if action == "toggle":
             await self.handle_toggle(user, data)
 
-  
     # 🔁 Core Logic
     async def handle_toggle(self, user, data):
         reaction_type = data.get("reaction_type", "like")
@@ -48,7 +50,9 @@ class ReactionConsumer(AsyncWebsocketConsumer):
         model_class = Comment if comment_id else Post
         obj_id = int(comment_id or post_id)
 
-        ct = await database_sync_to_async(ContentType.objects.get_for_model)(model_class)
+        ct = await database_sync_to_async(ContentType.objects.get_for_model)(
+            model_class
+        )
         existing = await database_sync_to_async(
             Reaction.objects.filter(user=user, content_type=ct, object_id=obj_id).first
         )()
@@ -72,7 +76,6 @@ class ReactionConsumer(AsyncWebsocketConsumer):
         await self.broadcast_summary(model_class, obj_id)
         await self.broadcast_event("created", reaction_type, obj_id)
 
-  
     # 📡 Broadcast helpers
     async def broadcast_event(self, event_type, reaction_type, obj_id):
         """Notify all clients viewing this post/comment."""

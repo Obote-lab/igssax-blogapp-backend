@@ -29,18 +29,11 @@ class LiveStreamViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = self.queryset
         user = self.request.user
-
-        # Filter based on privacy and user permissions
         if user.is_authenticated:
-            # Show public streams + user's own streams
-            # Note: You'll need to implement friend logic separately
             queryset = queryset.filter(
-                Q(privacy="public")
-                | Q(streamer=user)
-                | Q(privacy="friends")  # Placeholder - add friend logic when ready
+                Q(privacy="public") | Q(streamer=user) | Q(privacy="friends")
             ).distinct()
         else:
-            # Show only public streams for anonymous users
             queryset = queryset.filter(privacy="public")
 
         # Additional filters
@@ -324,7 +317,6 @@ class StreamRecordingViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Users can only see recordings for streams they own or participated in
         return self.queryset.filter(
             Q(stream__streamer=self.request.user)
             | Q(stream__participants__user=self.request.user)
@@ -342,18 +334,19 @@ class StreamMessageViewSet(viewsets.ModelViewSet):
         if stream_id:
             queryset = queryset.filter(stream_id=stream_id)
 
-        # Only show non-moderated messages to moderators/streamers
         user = self.request.user
-        if user.is_authenticated:
-            stream = queryset.first().stream if queryset.exists() else None
-            if stream and not (
+        if user.is_authenticated and queryset.exists():
+            stream = queryset.first().stream
+            is_moderator_or_streamer = (
                 user == stream.streamer
                 or StreamParticipant.objects.filter(
                     stream=stream,
                     user=user,
                     role=StreamParticipant.ParticipantRole.MODERATOR,
+                    left_at__isnull=True,
                 ).exists()
-            ):
+            )
+            if not is_moderator_or_streamer:
                 queryset = queryset.filter(is_moderated=False)
 
         return queryset.order_by("timestamp")
@@ -447,18 +440,19 @@ class StreamReactionViewSet(viewsets.ModelViewSet):
         ).exists():
             raise serializers.ValidationError("You must be in the stream to react")
 
-        # Use get_or_create to handle unique constraint
+        reaction_type = serializer.validated_data["reaction_type"]
+
+        # Use get_or_create correctly
         reaction, created = StreamReaction.objects.get_or_create(
             stream=stream,
             user=self.request.user,
-            reaction_type=serializer.validated_data["reaction_type"],
-            defaults=serializer.validated_data,
+            reaction_type=reaction_type,
+            defaults={"timestamp": timezone.now()},
         )
 
         if not created:
-            # Update existing reaction
-            for attr, value in serializer.validated_data.items():
-                setattr(reaction, attr, value)
+            # Update timestamp
+            reaction.timestamp = timezone.now()
             reaction.save()
 
     def destroy(self, request, *args, **kwargs):

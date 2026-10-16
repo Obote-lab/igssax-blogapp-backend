@@ -1,6 +1,3 @@
-# livestream/urls.py
-import time
-
 from django.http import JsonResponse
 from django.urls import include, path
 from django.utils import timezone
@@ -21,7 +18,7 @@ router.register(r"bans", StreamBanViewSet, basename="streamban")
 router.register(r"analytics", StreamAnalyticsViewSet, basename="streamanalytics")
 
 
-# --- Health Check ---
+# Health Check
 def health_check(request):
     return JsonResponse(
         {
@@ -32,13 +29,11 @@ def health_check(request):
     )
 
 
-# --- URL Patterns ---
+# URL Patterns
 urlpatterns = [
-    # Authenticated API (default CRUD routes)
     path("", include(router.urls)),
-    # Public API (unauthenticated)
     path(
-        "public/v1/",
+        "public/",
         include(
             [
                 path("health/", health_check, name="health-check"),
@@ -57,7 +52,7 @@ urlpatterns = [
     ),
     # Additional versioned endpoints
     path(
-        "v1/streams/",
+        "streams/",
         include(
             [
                 path(

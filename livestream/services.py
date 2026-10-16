@@ -1,25 +1,26 @@
 import json
 import logging
+
 import redis
 from django.conf import settings
 from django.utils import timezone
-from .models import LiveStream
+
 from livestream.utils.redis_client import get_redis_client
 
-
+from .models import LiveStream
 
 logger = logging.getLogger(__name__)
 
 
 class StreamNotificationService:
     def __init__(self):
-        self.redis_client = get_redis_client(0)
+        # self.redis_client = get_redis_client(0)
         try:
             self.redis_client = redis.Redis(
                 host=getattr(settings, "REDIS_HOST", "localhost"),
                 port=getattr(settings, "REDIS_PORT", 6379),
                 db=getattr(settings, "REDIS_DB", 0),
-                decode_responses=True,  # Automatically decode responses to strings
+                decode_responses=True,
             )
             # Test connection
             self.redis_client.ping()
@@ -39,7 +40,7 @@ class StreamNotificationService:
                 "type": "stream_started",
                 "stream_id": str(stream.id),
                 "streamer_id": str(stream.streamer.id),
-                "streamer_name": stream.streamer.username()
+                "streamer_name": stream.streamer.get_username()
                 or stream.streamer.email,
                 "title": stream.title,
                 "thumbnail": stream.thumbnail.url if stream.thumbnail else None,
@@ -52,9 +53,9 @@ class StreamNotificationService:
 
             # Publish to multiple channels for different use cases
             channels = [
-                f"user_{stream.streamer.id}_followers",  # Followers notifications
-                "global_stream_updates",  # Global stream updates
-                f"stream_{stream.id}",  # Stream-specific updates
+                f"user_{stream.streamer.id}_followers",
+                "global_stream_updates",
+                f"stream_{stream.id}",
             ]
 
             for channel in channels:
@@ -175,9 +176,7 @@ class StreamHealthService:
             health_data["last_updated"] = timezone.now().isoformat()
             health_data["stream_id"] = str(stream_id)
 
-            self.redis_client.setex(
-                key, 60, json.dumps(health_data)
-            )  # Expire in 60 seconds
+            self.redis_client.setex(key, 60, json.dumps(health_data))
 
             # Also store in a sorted set for health monitoring
             health_score = self._calculate_health_score(health_data)
@@ -194,23 +193,23 @@ class StreamHealthService:
 
         # Deduct points for high error rates
         error_rate = health_data.get("error_rate", 0)
-        if error_rate > 0.1:  # 10% error rate
+        if error_rate > 0.1:
             score -= 30
-        elif error_rate > 0.05:  # 5% error rate
+        elif error_rate > 0.05:
             score -= 15
 
         # Deduct points for high buffering
         buffering_ratio = health_data.get("buffering_ratio", 0)
-        if buffering_ratio > 0.1:  # 10% buffering
+        if buffering_ratio > 0.1:
             score -= 20
-        elif buffering_ratio > 0.05:  # 5% buffering
+        elif buffering_ratio > 0.05:
             score -= 10
 
         # Deduct points for low bitrate
         bitrate = health_data.get("average_bitrate", 0)
-        if bitrate < 500:  # Very low bitrate
+        if bitrate < 500:
             score -= 20
-        elif bitrate < 1000:  # Low bitrate
+        elif bitrate < 1000:
             score -= 10
 
         return max(0, score)
@@ -281,7 +280,6 @@ class StreamHealthService:
             # Remove health data older than 1 hour
             old_streams = self.redis_client.keys("stream_health_*")
             for key in old_streams:
-                # Check if the stream is still active
                 stream_id = key.replace("stream_health_", "")
                 if not LiveStream.objects.filter(
                     id=stream_id, status=LiveStream.StreamStatus.LIVE
@@ -292,16 +290,13 @@ class StreamHealthService:
             logger.error(f"Failed to cleanup old health data: {e}")
 
 
-# services.py - Add rate limiting
-
-
 class RateLimitService:
     def __init__(self):
         try:
             self.redis_client = redis.Redis(
                 host=getattr(settings, "REDIS_HOST", "localhost"),
                 port=getattr(settings, "REDIS_PORT", 6379),
-                db=getattr(settings, "REDIS_DB", 1),  # Different DB for rate limiting
+                db=getattr(settings, "REDIS_DB", 1),
                 decode_responses=True,
             )
         except redis.ConnectionError:
@@ -337,6 +332,3 @@ class RateLimitService:
         except Exception as e:
             logger.error(f"Failed to get remaining requests: {e}")
             return limit
-
-
-

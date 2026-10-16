@@ -2,6 +2,7 @@
 import redis
 from django.conf import settings
 
+
 def get_redis_client(db=0):
     return redis.Redis(
         host=getattr(settings, "REDIS_HOST", "localhost"),

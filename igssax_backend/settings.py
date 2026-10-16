@@ -10,6 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
+import warnings
 from datetime import timedelta
 from pathlib import Path
 
@@ -29,9 +31,9 @@ SECRET_KEY = config("SECRET_KEY")
 DEBUG = config("DEBUG", default=True, cast=bool)
 
 # ALLOWED_HOSTS = []
-ALLOWED_HOSTS = (
-    ["*"] if DEBUG else config("ALLOWED_HOSTS", default="localhost").split(",")
-)
+# ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
+FRONTEND_URL = config("FRONTEND_URL")
 
 
 # Application definition
@@ -69,7 +71,8 @@ INSTALLED_APPS = [
     "moderations",
     # "notifications",
     "notifications.apps.NotificationsConfig",
-    "posts",
+    # "posts",
+    "posts.apps.PostsConfig",
     "reactions",
     "search",
     "users.apps.UsersConfig",
@@ -84,11 +87,10 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    # "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "users.middleware.EnsureUserProfileMiddleware",
+    # "users.middleware.EnsureUserProfileMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "social_django.middleware.SocialAuthExceptionMiddleware",
@@ -100,7 +102,7 @@ ROOT_URLCONF = "igssax_backend.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        'DIRS': [BASE_DIR / "templates"], 
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -113,38 +115,39 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "igssax_backend.wsgi.application"
+ASGI_APPLICATION = "igssax_backend.asgi.application"
+
 
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
-        },
+        "CONFIG": {"hosts": [config("REDIS_URL", default="redis://127.0.0.1:6379")]},
     },
 }
+
 
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://127.0.0.1:6379/1",
+        "LOCATION": config("CACHE_URL", default="redis://127.0.0.1:6379/1"),
         "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-        "KEY_PREFIX": "finagent"
+        "KEY_PREFIX": "igssax",
     }
 }
-
-
 # CORS settings
-# https://pypi.org/project/django-cors-headers/
+# # https://pypi.org/project/django-cors-headers/
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+if DEBUG:
+    # Allow all origins in development
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    # Restrict origins in production
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = config(
+        "CORS_ALLOWED_ORIGINS",
+        default="https://igssax.com",
+    ).split(",")
 
-# Add these for better compatibility
-CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -251,6 +254,7 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    "CHECK_REVOKE_TOKEN": True,
     "UPDATE_LAST_LOGIN": True,
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,
@@ -274,27 +278,30 @@ SIMPLE_JWT = {
 
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "PAGE_SIZE": 30,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.OrderingFilter",
         "rest_framework.filters.SearchFilter",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ],
+    # Sensible defaults (tune later)
+    # "DEFAULT_THROTTLE_RATES": {
+    #     "user": "1000/day",
+    #     "anon": "100/day",
+    # },
+    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
 }
 
 
-REST_AUTH = {
-    "USE_JWT": True,
-    "JWT_AUTH_COOKIE": "jwt-auth",
-    "JWT_AUTH_REFRESH_COOKIE": "jwt-refresh-auth",
-    "REGISTER_SERIALIZER": "users.api.serializers.CustomRegisterSerializer",
-}
 # https://drf-spectacular.readthedocs.io/en/latest/readme.html
 # DRF spectacular settings for swagger documentation
 SPECTACULAR_SETTINGS = {
@@ -306,6 +313,7 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [],
     "IGNORE_SERIALIZER_NAME_CONFLICTS": True,
 }
+
 
 LOGGING_LEVEL = config("LOGGING_LEVEL", default="INFO", cast=str)
 
@@ -355,23 +363,34 @@ LOGGING = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "users.User"
-ACCOUNT_USER_MODEL_USERNAME_FIELD = None
-ACCOUNT_SIGNUP_FIELDS = [
-    "email",
-    "password1",
-    "password2",
-]
-ACCOUNT_LOGIN_METHODS = ["email"]
 
+# ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+# ACCOUNT_SIGNUP_FIELDS = [
+#     "email",
+#     "password1",
+#     "password2",
+# ]
+# ACCOUNT_LOGIN_METHODS = ["email"]
+
+
+# DJANGO-ALLAUTH SETTINGS
+# --- Core behavior ---
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+ACCOUNT_UNIQUE_EMAIL = True
+
+# --- NEW (preferred by allauth) ---
+ACCOUNT_LOGIN_METHODS = ["email"]
+ACCOUNT_SIGNUP_FIELDS = ["email", "password1", "password2"]
+
+# --- OLD (kept ONLY for dj-rest-auth compatibility) ---
+ACCOUNT_AUTHENTICATION_METHOD = "email"
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
 
 AUTHENTICATION_BACKENDS = (
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
 )
-
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "no-reply@igssax.com"
-
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = [
     "https://www.googleapis.com/auth/userinfo.email",
@@ -385,31 +404,12 @@ TEMPLATES[0]["OPTIONS"]["context_processors"] += [
     "social_django.context_processors.backends",
     "social_django.context_processors.login_redirect",
 ]
-
 
 # Backup settings
 # https://django-dbbackup.readthedocs.io/en/stable/installation.html
 DBBACKUP_STORAGE = "django.core.files.storage.FileSystemStorage"
 DBBACKUP_STORAGE_OPTIONS = {"location": str(BASE_DIR / "dbbackup")}
 
-AUTHENTICATION_BACKENDS = (
-    "django.contrib.auth.backends.ModelBackend",
-    "allauth.account.auth_backends.AuthenticationBackend",
-)
-
-
-SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = [
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/drive.file",
-]
-
-SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = ["access_token", "refresh_token", "expires_in"]
-
-TEMPLATES[0]["OPTIONS"]["context_processors"] += [
-    "social_django.context_processors.backends",
-    "social_django.context_processors.login_redirect",
-]
 
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
@@ -431,7 +431,6 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_REDIRECT_URI = (
     "http://localhost:8000/api/auth/google/callback/"
 )
 
-
 # Sending emails via Gmail
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
@@ -440,3 +439,45 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = config("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = f"IGSSAX <{EMAIL_HOST_USER}>"
+
+
+REST_AUTH_REGISTER_SERIALIZERS = {
+    "REGISTER_SERIALIZER": "users.api.serializers.CustomRegisterSerializer",
+}
+
+# Add Google OAuth credentials
+SOCIALACCOUNT_PROVIDERS = {
+    "google": {
+        "APP": {
+            "client_id": config("CLIENT_ID"),
+            "secret": config("CLIENT_SECRET"),
+            "key": "",
+        }
+    }
+}
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*EMAIL_REQUIRED is deprecated.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*USERNAME_REQUIRED is deprecated.*",
+)
+
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+else:
+    SECURE_SSL_REDIRECT = False
+
+
+SECURE_HSTS_SECONDS = 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = "DENY"

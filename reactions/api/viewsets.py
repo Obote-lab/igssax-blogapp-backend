@@ -4,12 +4,15 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+
 from comments.models import Comment
-from posts.models import Post
 from notifications.utils import create_notification
+from posts.models import Post
+
 from ..models import Reaction
+from ..utils.cache_utils import (get_reaction_summary_cached,
+                                 invalidate_reaction_cache)
 from .serializers import ReactionSerializer
-from ..utils.cache_utils import get_reaction_summary_cached, invalidate_reaction_cache
 
 
 class ReactionViewSet(viewsets.ModelViewSet):
@@ -180,7 +183,9 @@ class ReactionViewSet(viewsets.ModelViewSet):
         if not post_id:
             return Response({"error": "Provide post ID"}, status=400)
 
-        comment_ids = Comment.objects.filter(post_id=post_id).values_list("id", flat=True)
+        comment_ids = Comment.objects.filter(post_id=post_id).values_list(
+            "id", flat=True
+        )
         summaries = {
             cid: get_reaction_summary_cached(Comment, cid) for cid in comment_ids
         }

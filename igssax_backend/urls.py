@@ -15,43 +15,40 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from channels.auth import AuthMiddlewareStack
-from channels.routing import ProtocolTypeRouter, URLRouter
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.core.asgi import get_asgi_application
 from django.http import HttpResponse
 from django.urls import include, path
 from drf_spectacular.views import (SpectacularAPIView, SpectacularRedocView,
                                    SpectacularSwaggerView)
-import livestream.routing as livestream_routing
 
-# Simple view for root path
+
+# Root view
 def home_view(request):
     return HttpResponse("Welcome to IGSSAX API! Go to /api/docs/ for documentation.")
 
 
-application = ProtocolTypeRouter(
-    {
-        "http": get_asgi_application(),
-        "websocket": AuthMiddlewareStack(
-            URLRouter(livestream_routing.websocket_urlpatterns)
-        ),
-    }
-)
-
 urlpatterns = [
     path("", home_view, name="home"),
     path("admin/", admin.site.urls),
-    path("api/users/", include("users.urls")),
-    path("api/posts/", include("posts.urls")),
-    path("api/comments/", include("comments.urls")),
-    path("api/reactions/", include("reactions.urls")),
+    path("api/", include("users.urls")),
+    path("api/", include("posts.urls")),
+    path("api/", include("comments.urls")),
+    path("api/", include("reactions.urls")),
     path("api/livestream/", include("livestream.urls")),
+    # API Docs
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-    path("api/docs/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path(
+        "api/docs/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path(
+        "api/docs/redoc/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
 ]
 
 if settings.DEBUG:

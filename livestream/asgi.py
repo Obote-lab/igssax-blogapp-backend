@@ -23,4 +23,4 @@ application = ProtocolTypeRouter(
 )
 
 # Start Redis listener when ASGI loads
-asyncio.ensure_future(redis_event_listener())
+# asyncio.ensure_future(redis_event_listener())
